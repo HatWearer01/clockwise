@@ -86,9 +86,11 @@ describe("timer store", () => {
         status: {
           active_session: { id: 1, started_at: started, ended_at: null },
           worked_today_ms: 3_600_000,
+          break_today_ms: 0,
           state: "on_clock",
           next_boundary_ms: null,
           paused: false,
+          week_done: false,
         },
         nowMs: Date.now(),
       });
@@ -159,9 +161,11 @@ describe("timer store", () => {
         status: {
           active_session: null,
           worked_today_ms: 5000,
+          break_today_ms: 0,
           state: "after_shift",
           next_boundary_ms: null,
           paused: false,
+          week_done: false,
         },
         statusFetchedAt: Date.now(),
         nowMs: Date.now(),
@@ -181,9 +185,11 @@ describe("timer store", () => {
         status: {
           active_session: { id: 1, started_at: fetchedAt - 10000, ended_at: null },
           worked_today_ms: 10000,
+          break_today_ms: 0,
           state: "on_clock",
           next_boundary_ms: null,
           paused: false,
+          week_done: false,
         },
         statusFetchedAt: fetchedAt,
         nowMs: Date.now(),
@@ -199,9 +205,11 @@ describe("timer store", () => {
         status: {
           active_session: { id: 1, started_at: fetchedAt - 10000, ended_at: null },
           worked_today_ms: 10000,
+          break_today_ms: 0,
           state: "on_break",
           next_boundary_ms: null,
           paused: true,
+          week_done: false,
         },
         statusFetchedAt: fetchedAt,
         nowMs: Date.now(),

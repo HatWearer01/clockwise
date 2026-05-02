@@ -34,9 +34,11 @@ describe("Compact view", () => {
       status: {
         active_session: null,
         worked_today_ms: 0,
+        break_today_ms: 0,
         state: "before_shift",
         next_boundary_ms: null,
         paused: false,
+        week_done: false,
       },
       nowMs: Date.now(),
     });
@@ -50,9 +52,11 @@ describe("Compact view", () => {
       status: {
         active_session: null,
         worked_today_ms: 0,
+        break_today_ms: 0,
         state: "in_shift",
         next_boundary_ms: null,
         paused: false,
+        week_done: false,
       },
       nowMs: Date.now(),
     });
@@ -66,9 +70,11 @@ describe("Compact view", () => {
       status: {
         active_session: { id: 1, started_at: Date.now() - 3_600_000, ended_at: null },
         worked_today_ms: 3_600_000,
+        break_today_ms: 0,
         state: "on_clock",
         next_boundary_ms: null,
         paused: false,
+        week_done: false,
       },
       nowMs: Date.now(),
     });
@@ -83,9 +89,11 @@ describe("Compact view", () => {
       status: {
         active_session: { id: 1, started_at: Date.now() - 3_600_000, ended_at: null },
         worked_today_ms: 3_600_000,
+        break_today_ms: 0,
         state: "on_break",
         next_boundary_ms: null,
         paused: true,
+        week_done: false,
       },
       nowMs: Date.now(),
     });
@@ -98,10 +106,12 @@ describe("Compact view", () => {
     useTimerStore.setState({
       status: {
         active_session: { id: 1, started_at: Date.now() - 3_600_000, ended_at: null },
-        worked_today_ms: 14_400_000, // 4 hours
+        worked_today_ms: 14_400_000,
+        break_today_ms: 0,
         state: "on_clock",
         next_boundary_ms: null,
         paused: false,
+        week_done: false,
       },
       statusFetchedAt: Date.now(),
       nowMs: Date.now(),

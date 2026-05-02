@@ -20,7 +20,6 @@ export default function TodayTab() {
 
   if (!status) return <p className="muted">Loading today...</p>;
 
-  const isWeekDone = status.state === "week_done" || status.week_done;
   const todayDow = new Date().getDay();
   const todayBlocks = blocks
     .filter((b) => b.day_of_week === todayDow)

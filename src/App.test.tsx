@@ -30,9 +30,11 @@ beforeEach(() => {
     status: {
       active_session: null,
       worked_today_ms: 0,
+      break_today_ms: 0,
       state: "before_shift",
       next_boundary_ms: null,
       paused: false,
+      week_done: false,
     },
     statusFetchedAt: Date.now(),
     notice: null,
@@ -65,6 +67,7 @@ beforeEach(() => {
       quiet_hours_enabled: true,
       quiet_hours_start_min: 1320,
       quiet_hours_end_min: 480,
+      reminder_interval_min: 5,
       corner_snap: "TR",
       window_opacity: 0.96,
     },
@@ -91,9 +94,11 @@ describe("App", () => {
       status: {
         active_session: null,
         worked_today_ms: 0,
+        break_today_ms: 0,
         state: "before_shift",
         next_boundary_ms: null,
         paused: false,
+        week_done: false,
       },
       nowMs: Date.now(),
     });
