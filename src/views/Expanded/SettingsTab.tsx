@@ -114,7 +114,7 @@ export default function SettingsTab() {
         <article className="setting-row">
           <div>
             <span>Idle nudge</span>
-            <p className="muted setting-desc">Remind you if you're clocked in but seem idle.</p>
+            <p className="muted setting-desc">Nudge after 1.5 hours with no break, or 15 minutes of no mouse/keyboard activity while clocked in.</p>
           </div>
           <div className="button-group">
             <button

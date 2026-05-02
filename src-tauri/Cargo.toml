@@ -30,7 +30,9 @@ windows = { version = "0.61", features = [
   "Win32_Foundation",
   "Win32_System_RemoteDesktop",
   "Win32_System_Power",
-  "Win32_UI_WindowsAndMessaging"
+  "Win32_System_SystemInformation",
+  "Win32_UI_WindowsAndMessaging",
+  "Win32_UI_Input_KeyboardAndMouse"
 ] }
 tauri-plugin-sql = { version = "2.4.0", features = ["sqlite"] }
 sqlx = { version = "0.8.6", features = ["sqlite", "runtime-tokio-rustls"] }

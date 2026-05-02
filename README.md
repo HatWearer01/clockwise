@@ -1,8 +1,8 @@
 # Clockwise
 
-A personal time-tracking desktop app for self-regulating your work hours. Clock in and out on your own terms, track breaks, and see exactly how much you've worked — no employer surveillance, no timesheets to submit. Just you keeping yourself honest.
+A personal time-tracking desktop app for managing your own work hours. Clock in and out, track breaks, and see exactly how much you've worked — all local, all private, just for you.
 
-Built for the modern work-from-home employee or business owner who wants structure without micromanagement. Set your own weekly schedule, get gentle nudges when you drift, and review your patterns over time.
+Built for anyone who wants more structure in their workday. Set your own weekly schedule, get gentle nudges when you drift, and review your patterns over time.
 
 Built with Tauri 2, React 19, and TypeScript. Windows native.
 

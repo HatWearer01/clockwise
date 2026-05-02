@@ -2,8 +2,25 @@ use chrono::{Datelike, Local, Timelike};
 use sqlx::Row;
 use tauri::{AppHandle, Emitter, Manager};
 use tauri_plugin_notification::NotificationExt;
+use windows::Win32::UI::Input::KeyboardAndMouse::{GetLastInputInfo, LASTINPUTINFO};
+use windows::Win32::System::SystemInformation::GetTickCount;
 
 use crate::state::AppState;
+
+fn get_idle_seconds() -> u64 {
+    let mut info = LASTINPUTINFO {
+        cbSize: std::mem::size_of::<LASTINPUTINFO>() as u32,
+        dwTime: 0,
+    };
+    let success = unsafe { GetLastInputInfo(&mut info) };
+    if success.as_bool() {
+        let now_tick = unsafe { GetTickCount() };
+        let elapsed_ms = now_tick.wrapping_sub(info.dwTime);
+        (elapsed_ms / 1000) as u64
+    } else {
+        0
+    }
+}
 
 async fn get_interval_ms(state: &AppState) -> i64 {
     let raw: Option<String> = sqlx::query("SELECT value FROM settings WHERE key = 'reminder_interval_min'")
@@ -263,12 +280,32 @@ async fn check_and_notify(app: &AppHandle, state: &AppState) {
             .await
             .and_then(|row| row.try_get::<i64, _>(0));
             let active_for = now.timestamp_millis() - started_at;
-            if active_for > 3 * 60 * 60 * 1000 && matches!(has_pause, Ok(0)) {
+
+            // 1) No-break nudge: clocked in 1.5+ hours without a single break
+            if active_for > 90 * 60 * 1000 && matches!(has_pause, Ok(0)) {
                 send_reminder(
                     state, app,
-                    &format!("{}:idle", date_key),
+                    &format!("{}:no-break", date_key),
                     "Break reminder",
-                    "You have been clocked in for a while. Consider taking a short break.",
+                    "You've been working 1.5 hours straight. Consider taking a short break.",
+                    Some("break"),
+                    interval_ms,
+                ).await;
+            }
+
+            // 2) Input-idle nudge: clocked in but no mouse/keyboard activity for 15+ minutes
+            let idle_secs = get_idle_seconds();
+            let on_break = matches!(has_pause, Ok(n) if n > 0);
+            if idle_secs >= 15 * 60 && !on_break {
+                log::debug!("[notify] user idle for {}s while clocked in", idle_secs);
+                send_reminder(
+                    state, app,
+                    &format!("{}:input-idle", date_key),
+                    "Are you still there?",
+                    &format!(
+                        "You've been idle for {} minutes while clocked in. Take a break or clock out?",
+                        idle_secs / 60
+                    ),
                     Some("break"),
                     interval_ms,
                 ).await;
@@ -375,8 +412,8 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn idle_nudge_fires_after_3_hours() {
-        let threshold_ms = 3 * 60 * 60 * 1000;
+    async fn no_break_nudge_fires_after_90_minutes() {
+        let threshold_ms = 90 * 60 * 1000;
         let started_at = 1_700_000_000_000_i64;
         let now_ms = started_at + threshold_ms + 1;
         let active_for = now_ms - started_at;
@@ -385,6 +422,12 @@ mod tests {
         let now_ms_early = started_at + threshold_ms - 1;
         let active_for_early = now_ms_early - started_at;
         assert!(active_for_early <= threshold_ms);
+    }
+
+    #[test]
+    fn idle_seconds_returns_zero_or_more() {
+        let secs = super::get_idle_seconds();
+        assert!(secs < 60 * 60 * 24, "idle seconds should be reasonable, got {}", secs);
     }
 
     #[tokio::test]
