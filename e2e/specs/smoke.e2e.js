@@ -67,6 +67,68 @@ describe("Clockwise Smoke Tests", () => {
   });
 
   describe("Tab Navigation", () => {
+    it("should navigate to Tasks tab and show empty state", async () => {
+      const tasksTab = await $("button=Tasks");
+      await tasksTab.waitForClickable({ timeout: 5000 });
+      await tasksTab.click();
+
+      const heading = await $("h2=Tasks");
+      await heading.waitForDisplayed({ timeout: 5000 });
+      expect(await heading.isDisplayed()).toBe(true);
+
+      const dayPicker = await $(".tasks-day-picker");
+      expect(await dayPicker.isDisplayed()).toBe(true);
+    });
+
+    it("should add a task in the Tasks tab", async () => {
+      const input = await $(".daily-tasks-input");
+      await input.waitForDisplayed({ timeout: 5000 });
+      await input.setValue("Smoke test task");
+
+      const addBtn = await $("button=Add");
+      await addBtn.waitForClickable({ timeout: 5000 });
+      await addBtn.click();
+      await browser.pause(500);
+
+      const taskItem = await $(".daily-task-item");
+      await taskItem.waitForDisplayed({ timeout: 5000 });
+      expect(await taskItem.isDisplayed()).toBe(true);
+
+      const taskText = await taskItem.$("span");
+      expect(await taskText.getText()).toContain("Smoke test task");
+    });
+
+    it("should toggle a task done/undone", async () => {
+      const checkbox = await $(".daily-task-item input[type='checkbox']");
+      await checkbox.waitForClickable({ timeout: 5000 });
+      await checkbox.click();
+      await browser.pause(500);
+
+      const doneText = await $(".daily-task-text-done");
+      await doneText.waitForDisplayed({ timeout: 5000 });
+      expect(await doneText.isDisplayed()).toBe(true);
+
+      // Toggle back to undone
+      await checkbox.click();
+      await browser.pause(500);
+
+      expect(await doneText.isDisplayed()).toBe(false);
+    });
+
+    it("should delete a task", async () => {
+      const taskItem = await $(".daily-task-item");
+      await taskItem.moveTo();
+      await browser.pause(300);
+
+      const deleteBtn = await taskItem.$("button[title='Delete task']");
+      await deleteBtn.waitForClickable({ timeout: 5000 });
+      await deleteBtn.click();
+      await browser.pause(500);
+
+      const remaining = await $$(".daily-task-item");
+      expect(remaining.length).toBe(0);
+    });
+
     it("should navigate to Schedule tab and display 7 days", async () => {
       const scheduleTab = await $("button=Schedule");
       await scheduleTab.waitForClickable({ timeout: 5000 });
@@ -146,6 +208,46 @@ describe("Clockwise Smoke Tests", () => {
       const clockInBtn = await $("button=Clock in");
       await clockInBtn.waitForDisplayed({ timeout: 5000 });
       expect(await clockInBtn.isDisplayed()).toBe(true);
+    });
+  });
+
+  describe("Done for the Day", () => {
+    it("should show 'Day done' button on Today tab when idle with a schedule", async () => {
+      const todayTab = await $("button=Today");
+      await todayTab.waitForClickable({ timeout: 5000 });
+      await todayTab.click();
+      await browser.pause(500);
+
+      const dayDoneBtn = await $("button*=Done for the day");
+      // May not appear if today has no planned hours (e.g. weekend) — skip gracefully
+      if (await dayDoneBtn.isExisting()) {
+        await dayDoneBtn.waitForDisplayed({ timeout: 5000 });
+        expect(await dayDoneBtn.isDisplayed()).toBe(true);
+      }
+    });
+
+    it("should toggle 'Day done' on and off", async () => {
+      const dayDoneBtn = await $("button*=Done for the day");
+      if (!(await dayDoneBtn.isExisting())) {
+        // Weekend or no schedule — skip
+        return;
+      }
+
+      await dayDoneBtn.waitForClickable({ timeout: 5000 });
+      await dayDoneBtn.click();
+      await browser.pause(500);
+
+      const activeDoneBtn = await $("button*=Day done");
+      await activeDoneBtn.waitForDisplayed({ timeout: 5000 });
+      expect(await activeDoneBtn.getAttribute("class")).toContain("done-toggle-active");
+
+      // Toggle off
+      await activeDoneBtn.click();
+      await browser.pause(500);
+
+      const resetBtn = await $("button*=Done for the day");
+      await resetBtn.waitForDisplayed({ timeout: 5000 });
+      expect(await resetBtn.getAttribute("class")).not.toContain("done-toggle-active");
     });
   });
 

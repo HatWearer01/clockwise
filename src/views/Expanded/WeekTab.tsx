@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
-import { apiGetStatsSummary, apiGetWeekSummary, apiIsWeekDone, apiMarkWeekDone } from "../../lib/tauri";
+import { apiGetDailyTasks, apiGetStatsSummary, apiGetWeekSummary, apiIsWeekDone, apiMarkWeekDone, apiRolloverDailyTask } from "../../lib/tauri";
 import { useTimerStore } from "../../store/timer";
-import type { StatsSummary, WeekDaySummary } from "../../types";
+import type { DailyTask, StatsSummary, WeekDaySummary } from "../../types";
 import {
   currentWeekNumber,
   currentWeekRange,
@@ -9,6 +9,8 @@ import {
   formatHoursMinutes,
   formatMinuteAsTime,
   pct,
+  todayISODate,
+  weekDayDates,
 } from "../../lib/time";
 
 type ViewMode = "current" | "history";
@@ -19,6 +21,36 @@ export default function WeekTab() {
   const [error, setError] = useState<string | null>(null);
   const [view, setView] = useState<ViewMode>("current");
   const [weekDone, setWeekDone] = useState(false);
+  const [expandedDay, setExpandedDay] = useState<string | null>(null);
+  const [dayTasks, setDayTasks] = useState<DailyTask[]>([]);
+
+  const weekDates = weekDayDates();
+  const isoToday = todayISODate();
+
+  async function toggleExpandDay(date: string) {
+    if (expandedDay === date) {
+      setExpandedDay(null);
+      setDayTasks([]);
+      return;
+    }
+    setExpandedDay(date);
+    try {
+      const tasks = await apiGetDailyTasks(date);
+      setDayTasks(tasks ?? []);
+    } catch {
+      setDayTasks([]);
+    }
+  }
+
+  async function handleRolloverToToday(taskId: number) {
+    try {
+      await apiRolloverDailyTask(taskId, isoToday);
+      if (expandedDay) {
+        const tasks = await apiGetDailyTasks(expandedDay);
+        setDayTasks(tasks ?? []);
+      }
+    } catch { /* ignore */ }
+  }
 
   const load = useCallback(async () => {
     try {
@@ -134,37 +166,73 @@ export default function WeekTab() {
           </div>
 
           <div className="week-list">
-            {days.map((day) => {
+            {days.map((day, idx) => {
               const progress = pct(day.actual_ms, day.planned_ms);
               const isOff = day.planned_ms === 0;
               const isToday = day.day_of_week === todayDow;
               const dayOver = day.actual_ms > day.planned_ms && day.planned_ms > 0;
+              const dayDate = weekDates[idx]?.date ?? "";
+              const isExpanded = expandedDay === dayDate;
 
               return (
-                <div
-                  key={day.day_of_week}
-                  className={`week-row ${isOff ? "schedule-day-off" : ""} ${isToday ? "week-row-today" : ""}`}
-                >
-                  <span className="week-row-day">
-                    {day.label}
-                    {isToday ? <span className="week-today-dot" /> : null}
-                  </span>
-                  <div style={{ flex: 1, display: "grid", gap: 4 }}>
-                    <div className="week-bar-wrap">
-                      {day.planned_ms > 0 && (
-                        <div className="week-bar week-bar-planned" style={{ width: "100%", borderRadius: 999 }} />
-                      )}
-                      <div
-                        className={`week-bar ${dayOver ? "week-bar-overtime" : "week-bar-actual"}`}
-                        style={{ width: `${Math.min(100, progress)}%`, borderRadius: 999 }}
-                      />
+                <div key={day.day_of_week}>
+                  <div
+                    className={`week-row ${isOff ? "schedule-day-off" : ""} ${isToday ? "week-row-today" : ""}`}
+                    style={{ cursor: "pointer" }}
+                    onClick={() => void toggleExpandDay(dayDate)}
+                  >
+                    <span className="week-row-day">
+                      {day.label}
+                      {isToday ? <span className="week-today-dot" /> : null}
+                    </span>
+                    <div style={{ flex: 1, display: "grid", gap: 4 }}>
+                      <div className="week-bar-wrap">
+                        {day.planned_ms > 0 && (
+                          <div className="week-bar week-bar-planned" style={{ width: "100%", borderRadius: 999 }} />
+                        )}
+                        <div
+                          className={`week-bar ${dayOver ? "week-bar-overtime" : "week-bar-actual"}`}
+                          style={{ width: `${Math.min(100, progress)}%`, borderRadius: 999 }}
+                        />
+                      </div>
                     </div>
+                    <span className="week-row-hours">
+                      {isOff
+                        ? "off"
+                        : `${formatHoursMinutes(day.actual_ms)} / ${formatHoursMinutes(day.planned_ms)}`}
+                    </span>
                   </div>
-                  <span className="week-row-hours">
-                    {isOff
-                      ? "off"
-                      : `${formatHoursMinutes(day.actual_ms)} / ${formatHoursMinutes(day.planned_ms)}`}
-                  </span>
+                  {isExpanded && (
+                    <div className="week-day-tasks">
+                      {dayTasks.length === 0 ? (
+                        <p className="muted" style={{ fontSize: "0.82rem", margin: "4px 0 4px 28px" }}>
+                          No tasks for this day.
+                        </p>
+                      ) : (
+                        <ul className="daily-tasks-list" style={{ padding: "4px 0 4px 28px" }}>
+                          {dayTasks.map((task) => (
+                            <li key={task.id} className={`daily-task-item ${task.done ? "daily-task-done" : ""}`}>
+                              <span className="daily-task-label" style={{ cursor: "default" }}>
+                                <span style={{ width: 16, textAlign: "center", flexShrink: 0, fontSize: "0.82rem" }}>
+                                  {task.done ? "✓" : "○"}
+                                </span>
+                                <span className={task.done ? "daily-task-text-done" : ""}>{task.text}</span>
+                              </span>
+                              {!task.done && dayDate !== isoToday && (
+                                <button
+                                  className="chip"
+                                  style={{ fontSize: "0.72rem", padding: "1px 6px" }}
+                                  onClick={(e) => { e.stopPropagation(); void handleRolloverToToday(task.id); }}
+                                >
+                                  → Today
+                                </button>
+                              )}
+                            </li>
+                          ))}
+                        </ul>
+                      )}
+                    </div>
+                  )}
                 </div>
               );
             })}
@@ -172,7 +240,7 @@ export default function WeekTab() {
 
           {totalPlanned > 0 && (
             <button
-              className={weekDone ? "chip chip-active" : "chip"}
+              className={`done-toggle ${weekDone ? "done-toggle-active" : ""}`}
               style={{ marginTop: 8, alignSelf: "flex-start" }}
               onClick={async () => {
                 const next = !weekDone;
@@ -181,7 +249,7 @@ export default function WeekTab() {
                 void useTimerStore.getState().refreshStatus();
               }}
             >
-              {weekDone ? "Week marked done ✓" : "Done for the week"}
+              {weekDone ? "Week done ✓" : "Done for the week"}
             </button>
           )}
         </>

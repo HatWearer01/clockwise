@@ -57,14 +57,14 @@ export default function Compact() {
         </button>
       </header>
 
-      <motion.div className="compact-center" layout transition={{ type: "spring", stiffness: 260, damping: 24 }}>
+      <div className="compact-center">
         <ProgressRing progress={progressFrac}>
           <strong>{Math.round(progressFrac * 100)}%</strong>
           <span className="muted" style={{ fontSize: "0.65rem" }}>{formatHoursMinutes(liveWorked)}</span>
         </ProgressRing>
         <div className="compact-copy">
           <h1>{headline}</h1>
-          <p>{stateMessage(status.state, status.next_boundary_ms)}</p>
+          <p style={{ minHeight: "2.4em" }}>{stateMessage(status.state, status.next_boundary_ms)}</p>
           <div className="compact-info-row">
             <span>Worked: <strong>{formatHoursMinutes(liveWorked)}</strong></span>
             {status.break_today_ms > 0 ? (
@@ -82,7 +82,7 @@ export default function Compact() {
             ) : null}
           </div>
         </div>
-      </motion.div>
+      </div>
 
       <div className="compact-footer">
         <StatusChip state={status.state} />
@@ -95,8 +95,7 @@ export default function Compact() {
           <ClockButton active={Boolean(status.active_session)} onClick={() => (status.active_session ? void clockOut() : void clockIn())} />
           {!status.active_session && plannedMs > 0 && (
             <button
-              className={`chip ${isDayDone ? "chip-active" : ""}`}
-              style={{ fontSize: "0.75rem", padding: "2px 8px" }}
+              className={`done-toggle ${isDayDone ? "done-toggle-active" : ""}`}
               onClick={async () => {
                 const next = !isDayDone;
                 await apiMarkDayDone(next);

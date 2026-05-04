@@ -3,7 +3,7 @@ import { apiGetAppSettings, apiSaveAppSettings, apiSetMode } from "../lib/tauri"
 import type { AppSettings } from "../types";
 
 export type AppMode = "compact" | "expanded" | "fullscreen";
-export type ExpandedTab = "today" | "schedule" | "week" | "settings";
+export type ExpandedTab = "today" | "tasks" | "schedule" | "week" | "settings";
 export type ThemeMode = "dark" | "light" | "system";
 
 type SettingsStore = {

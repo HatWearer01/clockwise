@@ -1,6 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import type {
   AppSettings,
+  DailyTask,
   PendingRecovery,
   SaveSchedulePayload,
   SchedulePayload,
@@ -108,4 +109,28 @@ export function apiMarkDayDone(done: boolean) {
 
 export function apiIsDayDone() {
   return invoke<boolean>("is_day_done");
+}
+
+export function apiGetDailyTasks(date: string) {
+  return invoke<DailyTask[]>("get_daily_tasks", { date });
+}
+
+export function apiAddDailyTask(date: string, text: string) {
+  return invoke<DailyTask>("add_daily_task", { date, text });
+}
+
+export function apiUpdateDailyTask(id: number, text: string) {
+  return invoke<void>("update_daily_task", { id, text });
+}
+
+export function apiToggleDailyTask(id: number, done: boolean) {
+  return invoke<void>("toggle_daily_task", { id, done });
+}
+
+export function apiDeleteDailyTask(id: number) {
+  return invoke<void>("delete_daily_task", { id });
+}
+
+export function apiRolloverDailyTask(id: number, targetDate: string) {
+  return invoke<void>("rollover_daily_task", { id, targetDate });
 }

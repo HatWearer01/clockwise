@@ -101,6 +101,16 @@ pub const BASE_SCHEMA_SQL: &str = r#"
           FOREIGN KEY(session_id) REFERENCES session(id) ON DELETE CASCADE,
           FOREIGN KEY(item_id) REFERENCES block_checklist_item(id) ON DELETE CASCADE
         );
+
+        CREATE TABLE IF NOT EXISTS daily_task (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          date TEXT NOT NULL,
+          text TEXT NOT NULL,
+          done INTEGER NOT NULL DEFAULT 0,
+          done_at INTEGER,
+          created_at INTEGER NOT NULL,
+          position INTEGER NOT NULL
+        );
 "#;
 
 pub fn plugin_migrations() -> Vec<Migration> {

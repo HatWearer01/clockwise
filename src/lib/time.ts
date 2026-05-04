@@ -63,7 +63,31 @@ export function parseTimeInput(value: string): number {
 
 export function todayDateString(): string {
   const now = new Date();
-  return `${DAY_NAMES[now.getDay()]}, ${MONTH_NAMES[now.getMonth()]} ${now.getDate()}`;
+  return `${DAY_NAMES[now.getDay()]}, ${MONTH_NAMES[now.getMonth()]} ${now.getDate()}, ${now.getFullYear()}`;
+}
+
+export function todayISODate(): string {
+  const now = new Date();
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+}
+
+export function weekDayDates(): Array<{ dow: number; label: string; date: string }> {
+  const now = new Date();
+  const dayIdx = now.getDay();
+  const mondayOffset = dayIdx === 0 ? -6 : 1 - dayIdx;
+  const monday = new Date(now);
+  monday.setDate(now.getDate() + mondayOffset);
+  const result: Array<{ dow: number; label: string; date: string }> = [];
+  for (let i = 0; i < 7; i++) {
+    const d = new Date(monday);
+    d.setDate(monday.getDate() + i);
+    result.push({
+      dow: d.getDay(),
+      label: DAY_NAMES_SHORT[d.getDay()],
+      date: `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`,
+    });
+  }
+  return result;
 }
 
 export function currentWeekRange(): string {
@@ -74,7 +98,7 @@ export function currentWeekRange(): string {
   monday.setDate(now.getDate() + mondayOffset);
   const sunday = new Date(monday);
   sunday.setDate(monday.getDate() + 6);
-  return `${MONTH_NAMES_SHORT[monday.getMonth()]} ${monday.getDate()} - ${MONTH_NAMES_SHORT[sunday.getMonth()]} ${sunday.getDate()}`;
+  return `${MONTH_NAMES_SHORT[monday.getMonth()]} ${monday.getDate()} - ${MONTH_NAMES_SHORT[sunday.getMonth()]} ${sunday.getDate()}, ${sunday.getFullYear()}`;
 }
 
 export function currentWeekNumber(): number {

@@ -3,11 +3,13 @@ import { AnimatePresence, motion } from "framer-motion";
 import { useSettingsStore, type ExpandedTab } from "../../store/settings";
 import ScheduleTab from "./ScheduleTab";
 import SettingsTab from "./SettingsTab";
+import TasksTab from "./TasksTab";
 import TodayTab from "./TodayTab";
 import WeekTab from "./WeekTab";
 
 const TABS: Array<{ id: ExpandedTab; label: string }> = [
   { id: "today", label: "Today" },
+  { id: "tasks", label: "Tasks" },
   { id: "schedule", label: "Schedule" },
   { id: "week", label: "Week" },
   { id: "settings", label: "Settings" },
@@ -15,6 +17,7 @@ const TABS: Array<{ id: ExpandedTab; label: string }> = [
 
 function renderTab(tab: ExpandedTab) {
   if (tab === "today") return <TodayTab key="today" />;
+  if (tab === "tasks") return <TasksTab key="tasks" />;
   if (tab === "schedule") return <ScheduleTab key="schedule" />;
   if (tab === "week") return <WeekTab key="week" />;
   return <SettingsTab key="settings" />;

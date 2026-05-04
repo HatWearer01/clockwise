@@ -110,6 +110,12 @@ pub fn run() {
             commands::settings::save_app_settings,
             commands::settings::consume_startup_notice,
             commands::settings::open_data_folder,
+            commands::tasks::get_daily_tasks,
+            commands::tasks::add_daily_task,
+            commands::tasks::update_daily_task,
+            commands::tasks::toggle_daily_task,
+            commands::tasks::delete_daily_task,
+            commands::tasks::rollover_daily_task,
             notifications::check_notifications,
             window::set_mode
         ])

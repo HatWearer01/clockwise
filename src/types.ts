@@ -89,3 +89,13 @@ export type PendingRecovery = {
   started_at: number;
   suggested_end_at: number;
 };
+
+export type DailyTask = {
+  id: number;
+  date: string;
+  text: string;
+  done: boolean;
+  done_at: number | null;
+  created_at: number;
+  position: number;
+};
