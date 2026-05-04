@@ -1,6 +1,13 @@
 use tauri::{LogicalSize, Manager, WebviewWindow};
 
 #[tauri::command]
+pub fn show_window(window: WebviewWindow) -> Result<(), String> {
+    window.show().map_err(|e| e.to_string())?;
+    window.set_focus().map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+#[tauri::command]
 pub fn set_mode(window: WebviewWindow, mode: String) -> Result<(), String> {
     match mode.as_str() {
         "compact" => {

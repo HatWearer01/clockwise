@@ -77,7 +77,6 @@ pub fn run() {
             lock_detect::init_lock_and_sleep_listener(&app.handle());
             tray::init_tray(app)?;
             window::init_window_mode_support(app);
-            let _ = commands::settings::apply_saved_window_settings(&app.handle(), &managed);
             Ok(())
         })
         .on_window_event(|window, event| {
@@ -117,7 +116,8 @@ pub fn run() {
             commands::tasks::delete_daily_task,
             commands::tasks::rollover_daily_task,
             notifications::check_notifications,
-            window::set_mode
+            window::set_mode,
+            window::show_window
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

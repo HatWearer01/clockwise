@@ -1,7 +1,5 @@
 use serde::{Deserialize, Serialize};
 use sqlx::Row;
-use tauri::Manager;
-use tauri::{PhysicalPosition, Position};
 use tauri_plugin_autostart::ManagerExt as _;
 
 use crate::commands::session::ApiError;
@@ -36,7 +34,6 @@ pub struct AppSettings {
     pub quiet_hours_start_min: i64,
     pub quiet_hours_end_min: i64,
     pub reminder_interval_min: i64,
-    pub corner_snap: String,
     pub window_opacity: f64,
 }
 
@@ -101,7 +98,6 @@ pub async fn get_app_settings(state: tauri::State<'_, AppState>) -> Result<AppSe
             .map_err(ApiError::from)?
             .parse::<i64>()
             .unwrap_or(5),
-        corner_snap: get_string(&state, "corner_snap", "TR").await.map_err(ApiError::from)?,
         window_opacity: get_f64(&state, "window_opacity", 0.96).await.map_err(ApiError::from)?,
     })
 }
@@ -174,14 +170,6 @@ pub async fn save_app_settings(
     .await
     .map_err(|e| ApiError::from(e.to_string()))?;
     sqlx::query(
-        "INSERT INTO settings (key, value) VALUES ('corner_snap', ?)
-         ON CONFLICT(key) DO UPDATE SET value = excluded.value",
-    )
-    .bind(settings.corner_snap.as_str())
-    .execute(&state.pool)
-    .await
-    .map_err(|e| ApiError::from(e.to_string()))?;
-    sqlx::query(
         "INSERT INTO settings (key, value) VALUES ('window_opacity', ?)
          ON CONFLICT(key) DO UPDATE SET value = excluded.value",
     )
@@ -189,23 +177,6 @@ pub async fn save_app_settings(
     .execute(&state.pool)
     .await
     .map_err(|e| ApiError::from(e.to_string()))?;
-
-    if let Some(window) = app.get_webview_window("main") {
-        if let Ok(Some(monitor)) = window.current_monitor() {
-            if let Ok(size) = window.outer_size() {
-                let m = monitor.size();
-                let x = match settings.corner_snap.as_str() {
-                    "TL" | "BL" => 16,
-                    _ => (m.width.saturating_sub(size.width)).saturating_sub(16),
-                };
-                let y = match settings.corner_snap.as_str() {
-                    "TL" | "TR" => 16,
-                    _ => (m.height.saturating_sub(size.height)).saturating_sub(16),
-                };
-                let _ = window.set_position(Position::Physical(PhysicalPosition::new(x as i32, y as i32)));
-            }
-        }
-    }
 
     notifications::recalculate_notifications(&app);
 
@@ -238,52 +209,10 @@ pub async fn get_app_settings_direct(state: &AppState) -> Result<AppSettings, St
             .await?
             .parse::<i64>()
             .unwrap_or(5),
-        corner_snap: get_string(state, "corner_snap", "TR").await?,
         window_opacity: get_f64(state, "window_opacity", 0.96).await?,
     })
 }
 
-pub fn apply_saved_window_settings(app: &tauri::AppHandle, state: &AppState) -> Result<(), String> {
-    let settings = tauri::async_runtime::block_on(async {
-        Ok::<AppSettings, String>(AppSettings {
-            autostart_enabled: get_bool(state, "autostart_enabled", true).await?,
-            notifications_enabled: get_bool(state, "notifications_enabled", true).await?,
-            idle_nudge_enabled: get_bool(state, "idle_nudge_enabled", true).await?,
-            quiet_hours_enabled: get_bool(state, "quiet_hours_enabled", false).await?,
-            quiet_hours_start_min: get_string(state, "quiet_hours_start_min", "1320")
-                .await?
-                .parse::<i64>()
-                .unwrap_or(1320),
-            quiet_hours_end_min: get_string(state, "quiet_hours_end_min", "480")
-                .await?
-                .parse::<i64>()
-                .unwrap_or(480),
-            reminder_interval_min: get_string(state, "reminder_interval_min", "5")
-                .await?
-                .parse::<i64>()
-                .unwrap_or(5),
-            corner_snap: get_string(state, "corner_snap", "TR").await?,
-            window_opacity: get_f64(state, "window_opacity", 0.96).await?,
-        })
-    })?;
-    if let Some(window) = app.get_webview_window("main") {
-        if let Ok(Some(monitor)) = window.current_monitor() {
-            if let Ok(size) = window.outer_size() {
-                let m = monitor.size();
-                let x = match settings.corner_snap.as_str() {
-                    "TL" | "BL" => 16,
-                    _ => (m.width.saturating_sub(size.width)).saturating_sub(16),
-                };
-                let y = match settings.corner_snap.as_str() {
-                    "TL" | "TR" => 16,
-                    _ => (m.height.saturating_sub(size.height)).saturating_sub(16),
-                };
-                let _ = window.set_position(Position::Physical(PhysicalPosition::new(x as i32, y as i32)));
-            }
-        }
-    }
-    Ok(())
-}
 
 #[cfg(test)]
 mod tests {
@@ -301,7 +230,6 @@ mod tests {
         assert!(!settings.quiet_hours_enabled);
         assert_eq!(settings.quiet_hours_start_min, 1320);
         assert_eq!(settings.quiet_hours_end_min, 480);
-        assert_eq!(settings.corner_snap, "TR");
         assert!((settings.window_opacity - 0.96).abs() < f64::EPSILON);
     }
 
@@ -313,15 +241,12 @@ mod tests {
             .execute(&state.pool).await.unwrap();
         sqlx::query("INSERT INTO settings (key, value) VALUES ('notifications_enabled', '0') ON CONFLICT(key) DO UPDATE SET value = excluded.value")
             .execute(&state.pool).await.unwrap();
-        sqlx::query("INSERT INTO settings (key, value) VALUES ('corner_snap', 'BL') ON CONFLICT(key) DO UPDATE SET value = excluded.value")
-            .execute(&state.pool).await.unwrap();
         sqlx::query("INSERT INTO settings (key, value) VALUES ('window_opacity', '0.75') ON CONFLICT(key) DO UPDATE SET value = excluded.value")
             .execute(&state.pool).await.unwrap();
 
         let settings = get_app_settings_direct(&state).await.unwrap();
         assert!(!settings.autostart_enabled);
         assert!(!settings.notifications_enabled);
-        assert_eq!(settings.corner_snap, "BL");
         assert!((settings.window_opacity - 0.75).abs() < f64::EPSILON);
     }
 
@@ -407,30 +332,4 @@ mod tests {
         assert!(after.is_none());
     }
 
-    #[tokio::test]
-    async fn corner_snap_position_logic() {
-        // Test the corner snap position calculation
-        let monitor_width: u32 = 1920;
-        let monitor_height: u32 = 1080;
-        let window_width: u32 = 450;
-        let window_height: u32 = 720;
-
-        for snap in ["TL", "TR", "BL", "BR"] {
-            let x = match snap {
-                "TL" | "BL" => 16_u32,
-                _ => (monitor_width.saturating_sub(window_width)).saturating_sub(16),
-            };
-            let y = match snap {
-                "TL" | "TR" => 16_u32,
-                _ => (monitor_height.saturating_sub(window_height)).saturating_sub(16),
-            };
-            match snap {
-                "TL" => { assert_eq!(x, 16); assert_eq!(y, 16); }
-                "TR" => { assert_eq!(x, 1454); assert_eq!(y, 16); }
-                "BL" => { assert_eq!(x, 16); assert_eq!(y, 344); }
-                "BR" => { assert_eq!(x, 1454); assert_eq!(y, 344); }
-                _ => unreachable!(),
-            }
-        }
-    }
 }

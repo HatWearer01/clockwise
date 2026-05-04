@@ -5,7 +5,7 @@ import Compact from "./views/Compact";
 import { useScheduleStore } from "./store/schedule";
 import { useSettingsStore } from "./store/settings";
 import { useTimerStore } from "./store/timer";
-import { apiCheckNotifications } from "./lib/tauri";
+import { apiCheckNotifications, apiShowWindow } from "./lib/tauri";
 import { parseTimeInput, timeInputValue } from "./lib/time";
 import Titlebar from "./components/Titlebar";
 
@@ -32,6 +32,7 @@ function App() {
     void emit("app-ready");
     void timerStore.load();
     void scheduleStore.load();
+    void apiShowWindow().catch(() => {});
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 

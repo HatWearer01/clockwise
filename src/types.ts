@@ -80,7 +80,6 @@ export type AppSettings = {
   quiet_hours_start_min: number;
   quiet_hours_end_min: number;
   reminder_interval_min: number;
-  corner_snap: "TL" | "TR" | "BL" | "BR";
   window_opacity: number;
 };
 

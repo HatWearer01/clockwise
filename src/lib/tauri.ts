@@ -71,6 +71,10 @@ export function apiSetMode(mode: "compact" | "expanded" | "fullscreen") {
   return invoke<void>("set_mode", { mode });
 }
 
+export function apiShowWindow() {
+  return invoke<void>("show_window");
+}
+
 export function apiGetAppSettings() {
   return invoke<AppSettings>("get_app_settings");
 }

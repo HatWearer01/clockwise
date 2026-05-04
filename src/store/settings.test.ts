@@ -17,7 +17,6 @@ beforeEach(() => {
       quiet_hours_start_min: 1320,
       quiet_hours_end_min: 480,
       reminder_interval_min: 5,
-      corner_snap: "TR",
       window_opacity: 0.96,
     },
     settingsSaving: false,
@@ -40,7 +39,6 @@ describe("settings store", () => {
         quiet_hours_enabled: true,
         quiet_hours_start_min: 1320,
         quiet_hours_end_min: 480,
-        corner_snap: "TR",
         window_opacity: 0.96,
       });
 

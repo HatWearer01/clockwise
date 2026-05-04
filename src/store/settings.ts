@@ -42,7 +42,6 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
     quiet_hours_start_min: 22 * 60,
     quiet_hours_end_min: 8 * 60,
     reminder_interval_min: 5,
-    corner_snap: "TR",
     window_opacity: 0.96,
   },
   settingsSaving: false,
