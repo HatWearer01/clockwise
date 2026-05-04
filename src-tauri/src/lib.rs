@@ -100,6 +100,8 @@ pub fn run() {
             commands::session::toggle_checklist_item,
             commands::session::mark_week_done,
             commands::session::is_week_done,
+            commands::session::mark_day_done,
+            commands::session::is_day_done,
             commands::schedule::get_schedule,
             commands::schedule::save_schedule,
             commands::schedule::create_template,

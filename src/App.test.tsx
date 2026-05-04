@@ -35,6 +35,7 @@ beforeEach(() => {
       next_boundary_ms: null,
       paused: false,
       week_done: false,
+      day_done: false,
     },
     statusFetchedAt: Date.now(),
     notice: null,
@@ -99,6 +100,7 @@ describe("App", () => {
         next_boundary_ms: null,
         paused: false,
         week_done: false,
+        day_done: false,
       },
       nowMs: Date.now(),
     });

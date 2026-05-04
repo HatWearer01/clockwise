@@ -14,7 +14,7 @@ export type ScheduleBlock = {
   color: string;
 };
 
-export type StatusState = "on_clock" | "on_break" | "off_day" | "before_shift" | "in_shift" | "after_shift" | "week_done";
+export type StatusState = "on_clock" | "on_break" | "off_day" | "before_shift" | "in_shift" | "after_shift" | "week_done" | "day_done";
 
 export type StatusResponse = {
   active_session: SessionRecord | null;
@@ -24,6 +24,7 @@ export type StatusResponse = {
   next_boundary_ms: number | null;
   paused: boolean;
   week_done: boolean;
+  day_done: boolean;
 };
 
 export type ScheduleTemplate = {

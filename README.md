@@ -10,7 +10,7 @@ Built with Tauri 2, React 19, and TypeScript. Windows native.
 
 - **Clock in/out and break tracking** — one-click clock in, take breaks, see worked vs break time separately
 - **Weekly schedule** — set your planned hours per day, including overnight shifts (e.g. 11 PM to 7 AM)
-- **"Done for the week" toggle** — mark your week as complete early; the entire app reflects this (no more "in shift" reminders)
+- **"Done for the day / week" toggles** — mark your day or week as complete early; the entire app reflects this (no more "in shift" reminders or clock-in nudges)
 - **Smart notifications** — configurable reminder interval (1–30 min), repeating clock-in/out nudges via Windows toast + in-app banner, with optional quiet hours
 - **Close to tray** — X button hides to system tray; left-click tray icon toggles visibility, right-click for menu
 - **Compact and expanded modes** — compact floating widget or full dashboard with Today, Schedule, Week, and Settings tabs
@@ -61,24 +61,24 @@ cd src-tauri && cargo test
 
 The suite is split into two layers that together cover every feature of the app:
 
-#### Rust Backend Tests (51 tests)
+#### Rust Backend Tests (52 tests)
 
 Located inline in each module as `#[cfg(test)] mod tests { ... }`. These test the data layer and business logic directly against an in-memory SQLite database, so they run fast and in isolation.
 
 | Module | What's tested |
 |--------|---------------|
 | `db.rs` | Schema creation, idempotent init, default schedule seeding, template bootstrapping |
-| `commands/session.rs` | Clock in/out, break start/resume, pause subtraction from worked time, active session detection, pending recovery clamping, checklist toggle |
+| `commands/session.rs` | Clock in/out, break start/resume, pause subtraction from worked time, active session detection, pending recovery clamping, checklist toggle, day/week done |
 | `commands/schedule.rs` | Block CRUD, validation (day range, time range), template activation, legacy schedule sync, cascade deletes |
 | `commands/settings.rs` | Setting defaults, round-trip persistence, opacity clamping, boolean parsing, corner snap positioning |
-| `notifications.rs` | Interval-based reminder dedup, quiet hours (normal and wrap-around), overtime nudge, idle nudge, week-done suppression |
+| `notifications.rs` | Interval-based reminder dedup, quiet hours (normal and wrap-around), overtime nudge, idle nudge, day/week-done suppression |
 | `startup.rs` | Stale session reconciliation, pending recovery creation, startup notice lifecycle, heartbeat file handling |
 | `tray.rs` | System tray setup, left-click toggle, right-click menu (show/clock in/clock out/quit) |
 | `lock_detect.rs` | Windows session lock/unlock and sleep/wake detection via message-only window |
 
 **Test helper:** `src/test_helpers.rs` provides `test_state()` which builds an in-memory SQLite pool, runs all migrations, and returns a ready-to-use `AppState`.
 
-#### Frontend Tests (143 tests)
+#### Frontend Tests (146 tests)
 
 Powered by **Vitest** + **React Testing Library** + **jsdom**. The Tauri IPC layer (`@tauri-apps/api`) is mocked globally in `src/test-setup.ts`, allowing all frontend logic to be tested without a running Tauri backend.
 
@@ -155,7 +155,7 @@ npm run smoke
 ### Test Design Principles
 
 - **Isolation:** Each test creates its own in-memory database (Rust) or resets store state (frontend). Tests never depend on execution order.
-- **Speed:** The full suite (194 tests) runs in under 10 seconds total.
+- **Speed:** The full suite (198 tests) runs in under 10 seconds total.
 - **No network/OS dependencies:** All external APIs (Tauri IPC, notifications, window management, filesystem heartbeat) are mocked or use temp files.
 - **Feature-aligned:** Tests are organized by feature, not by test type. This makes it easy to find and extend coverage when modifying a specific feature.
 

@@ -30,6 +30,7 @@ describe("TodayTab", () => {
         next_boundary_ms: null,
         paused: false,
         week_done: false,
+        day_done: false,
       },
       nowMs: Date.now(),
     });
@@ -51,6 +52,7 @@ describe("TodayTab", () => {
         next_boundary_ms: null,
         paused: false,
         week_done: false,
+        day_done: false,
       },
       nowMs: Date.now(),
     });
@@ -70,6 +72,7 @@ describe("TodayTab", () => {
         next_boundary_ms: null,
         paused: false,
         week_done: false,
+        day_done: false,
       },
       statusFetchedAt: Date.now(),
       nowMs: Date.now(),
@@ -90,6 +93,7 @@ describe("TodayTab", () => {
         next_boundary_ms: null,
         paused: false,
         week_done: false,
+        day_done: false,
       },
       nowMs: Date.now(),
     });
@@ -108,6 +112,7 @@ describe("TodayTab", () => {
         next_boundary_ms: null,
         paused: false,
         week_done: false,
+        day_done: false,
       },
       nowMs: Date.now(),
     });

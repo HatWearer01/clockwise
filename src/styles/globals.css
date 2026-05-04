@@ -332,6 +332,11 @@ body,
   background: #90a3c1;
 }
 
+.status-chip-day_done .status-chip-dot,
+.status-chip-week_done .status-chip-dot {
+  background: #60a5fa;
+}
+
 .expanded-view {
   display: flex;
   flex-direction: column;

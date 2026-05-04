@@ -1,4 +1,4 @@
-import { Clock3, Menu } from "lucide-react";
+import { Menu } from "lucide-react";
 import { motion } from "framer-motion";
 import ClockButton from "../components/ClockButton";
 import ProgressRing from "../components/ProgressRing";
@@ -9,6 +9,7 @@ import {
   formatHoursMinutes,
   stateMessage,
 } from "../lib/time";
+import { apiMarkDayDone } from "../lib/tauri";
 import { useScheduleStore } from "../store/schedule";
 import { useSettingsStore } from "../store/settings";
 import { useTimerStore } from "../store/timer";
@@ -25,12 +26,15 @@ export default function Compact() {
   const plannedMs = todayBlocks.reduce((s, b) => s + blockDurationMs(b.start_min, b.end_min), 0);
 
   const isWeekDone = status.state === "week_done" || status.week_done;
+  const isDayDone = status.state === "day_done" || status.day_done;
   const activeElapsed = status.active_session ? nowMs - status.active_session.started_at : 0;
   const headline = isWeekDone && !status.active_session
     ? "Week complete"
-    : status.active_session
-      ? formatDuration(activeElapsed)
-      : "Ready when you are";
+    : isDayDone && !status.active_session
+      ? "Done for today"
+      : status.active_session
+        ? formatDuration(activeElapsed)
+        : "Ready when you are";
   const liveWorked = useTimerStore.getState().liveWorkedMs();
   const progressFrac = plannedMs > 0 ? Math.min(1, liveWorked / plannedMs) : 0;
   const remainingMs = Math.max(0, plannedMs - liveWorked);
@@ -45,7 +49,7 @@ export default function Compact() {
     >
       <header className="compact-header">
         <div className="brand">
-          <Clock3 size={14} />
+          <img src="/app-icon.png" alt="" width={16} height={16} />
           Clockwise
         </div>
         <button className="ghost" onClick={() => void setMode("expanded")}>
@@ -89,6 +93,19 @@ export default function Compact() {
             </button>
           ) : null}
           <ClockButton active={Boolean(status.active_session)} onClick={() => (status.active_session ? void clockOut() : void clockIn())} />
+          {!status.active_session && plannedMs > 0 && (
+            <button
+              className={`chip ${isDayDone ? "chip-active" : ""}`}
+              style={{ fontSize: "0.75rem", padding: "2px 8px" }}
+              onClick={async () => {
+                const next = !isDayDone;
+                await apiMarkDayDone(next);
+                void useTimerStore.getState().refreshStatus();
+              }}
+            >
+              {isDayDone ? "Day done ✓" : "Day done"}
+            </button>
+          )}
         </div>
       </div>
     </motion.section>

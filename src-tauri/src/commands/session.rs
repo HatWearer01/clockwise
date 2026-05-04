@@ -42,6 +42,7 @@ pub struct StatusResponse {
     pub next_boundary_ms: Option<i64>,
     pub paused: bool,
     pub week_done: bool,
+    pub day_done: bool,
 }
 
 #[derive(Debug, Serialize)]
@@ -214,6 +215,12 @@ pub async fn clock_in(state: tauri::State<'_, AppState>) -> Result<SessionRecord
     let matching_block = today_blocks.iter().find(|b| current_minute >= b.start_min && current_minute < b.end_min);
     let block_id = matching_block.map(|b| b.id);
 
+    let day_done_key = format!("done_day_{}", now_local.format("%Y-%m-%d"));
+    let _ = sqlx::query("DELETE FROM app_meta WHERE key = ?")
+        .bind(&day_done_key)
+        .execute(&state.pool)
+        .await;
+
     let result = sqlx::query("INSERT INTO session (started_at, ended_at, block_id) VALUES (?, NULL, ?)")
         .bind(started_at)
         .bind(block_id)
@@ -353,12 +360,22 @@ pub async fn get_status(state: tauri::State<'_, AppState>) -> Result<StatusRespo
         .map_err(|e| ApiError::from(e.to_string()))?
         .is_some();
 
+    let day_done_key = format!("done_day_{}", now_local.format("%Y-%m-%d"));
+    let day_done = sqlx::query("SELECT 1 FROM app_meta WHERE key = ?")
+        .bind(&day_done_key)
+        .fetch_optional(&state.pool)
+        .await
+        .map_err(|e| ApiError::from(e.to_string()))?
+        .is_some();
+
     let (state_name, next_boundary_ms) = if active_session.is_some() && paused {
         ("on_break".to_string(), Some(now + 1_000))
     } else if active_session.is_some() {
         ("on_clock".to_string(), Some(now + 1_000))
     } else if week_done {
         ("week_done".to_string(), None)
+    } else if day_done {
+        ("day_done".to_string(), None)
     } else {
         let mut next_start: Option<i64> = None;
         let mut current_block_end: Option<i64> = None;
@@ -417,6 +434,7 @@ pub async fn get_status(state: tauri::State<'_, AppState>) -> Result<StatusRespo
         next_boundary_ms,
         paused,
         week_done,
+        day_done,
     })
 }
 
@@ -486,6 +504,43 @@ pub async fn mark_week_done(state: tauri::State<'_, AppState>, done: bool) -> Re
             .map_err(|e| ApiError::from(e.to_string()))?;
     }
     Ok(())
+}
+
+#[tauri::command]
+pub async fn mark_day_done(state: tauri::State<'_, AppState>, done: bool) -> Result<(), ApiError> {
+    let now = Local::now();
+    let key = format!("done_day_{}", now.format("%Y-%m-%d"));
+
+    if done {
+        sqlx::query(
+            "INSERT INTO app_meta (key, value) VALUES (?, '1')
+             ON CONFLICT(key) DO UPDATE SET value = '1'",
+        )
+        .bind(&key)
+        .execute(&state.pool)
+        .await
+        .map_err(|e| ApiError::from(e.to_string()))?;
+    } else {
+        sqlx::query("DELETE FROM app_meta WHERE key = ?")
+            .bind(&key)
+            .execute(&state.pool)
+            .await
+            .map_err(|e| ApiError::from(e.to_string()))?;
+    }
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn is_day_done(state: tauri::State<'_, AppState>) -> Result<bool, ApiError> {
+    let now = Local::now();
+    let key = format!("done_day_{}", now.format("%Y-%m-%d"));
+
+    let exists = sqlx::query("SELECT 1 FROM app_meta WHERE key = ?")
+        .bind(&key)
+        .fetch_optional(&state.pool)
+        .await
+        .map_err(|e| ApiError::from(e.to_string()))?;
+    Ok(exists.is_some())
 }
 
 #[tauri::command]

@@ -24,8 +24,10 @@ describe("timer store", () => {
       const mockStatus = {
         active_session: null,
         worked_today_ms: 3_600_000,
+        break_today_ms: 0,
         state: "in_shift" as const,
         week_done: false,
+        day_done: false,
         next_boundary_ms: null,
         paused: false,
       };
@@ -59,9 +61,12 @@ describe("timer store", () => {
         .mockResolvedValueOnce({
           active_session: { id: 1, started_at: 1000, ended_at: null },
           worked_today_ms: 0,
+          break_today_ms: 0,
           state: "on_clock",
           next_boundary_ms: 1001,
           paused: false,
+          week_done: false,
+          day_done: false,
         }); // get_status (refresh)
 
       await useTimerStore.getState().clockIn();
@@ -91,6 +96,7 @@ describe("timer store", () => {
           next_boundary_ms: null,
           paused: false,
           week_done: false,
+          day_done: false,
         },
         nowMs: Date.now(),
       });
@@ -100,9 +106,12 @@ describe("timer store", () => {
         .mockResolvedValueOnce({
           active_session: null,
           worked_today_ms: 3_600_000,
+          break_today_ms: 0,
           state: "after_shift",
           next_boundary_ms: null,
           paused: false,
+          week_done: false,
+          day_done: false,
         }); // get_status
 
       await useTimerStore.getState().clockOut();
@@ -118,9 +127,12 @@ describe("timer store", () => {
         .mockResolvedValueOnce({
           active_session: { id: 1, started_at: 1000, ended_at: null },
           worked_today_ms: 1000,
+          break_today_ms: 0,
           state: "on_break",
           next_boundary_ms: null,
           paused: true,
+          week_done: false,
+          day_done: false,
         });
 
       await useTimerStore.getState().startBreak();
@@ -135,9 +147,12 @@ describe("timer store", () => {
         .mockResolvedValueOnce({
           active_session: { id: 1, started_at: 1000, ended_at: null },
           worked_today_ms: 1000,
+          break_today_ms: 0,
           state: "on_clock",
           next_boundary_ms: null,
           paused: false,
+          week_done: false,
+          day_done: false,
         });
 
       await useTimerStore.getState().resumeBreak();
@@ -166,6 +181,7 @@ describe("timer store", () => {
           next_boundary_ms: null,
           paused: false,
           week_done: false,
+          day_done: false,
         },
         statusFetchedAt: Date.now(),
         nowMs: Date.now(),
@@ -190,6 +206,7 @@ describe("timer store", () => {
           next_boundary_ms: null,
           paused: false,
           week_done: false,
+          day_done: false,
         },
         statusFetchedAt: fetchedAt,
         nowMs: Date.now(),
@@ -210,6 +227,7 @@ describe("timer store", () => {
           next_boundary_ms: null,
           paused: true,
           week_done: false,
+          day_done: false,
         },
         statusFetchedAt: fetchedAt,
         nowMs: Date.now(),
@@ -231,9 +249,12 @@ describe("timer store", () => {
         .mockResolvedValueOnce({
           active_session: null,
           worked_today_ms: 1000,
+          break_today_ms: 0,
           state: "after_shift",
           next_boundary_ms: null,
           paused: false,
+          week_done: false,
+          day_done: false,
         }); // get_status
 
       await useTimerStore.getState().applyPendingRecovery(2000);

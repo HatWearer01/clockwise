@@ -28,6 +28,7 @@ beforeEach(() => {
       next_boundary_ms: null,
       paused: false,
       week_done: false,
+      day_done: false,
     },
   });
 });

@@ -164,6 +164,19 @@ async fn check_and_notify(app: &AppHandle, state: &AppState) {
         return;
     }
 
+    let day_done_key = format!("done_day_{}", now.format("%Y-%m-%d"));
+    let day_done = sqlx::query("SELECT 1 FROM app_meta WHERE key = ?")
+        .bind(&day_done_key)
+        .fetch_optional(&state.pool)
+        .await
+        .ok()
+        .flatten()
+        .is_some();
+    if day_done {
+        log::debug!("[notify] day marked done, skipping");
+        return;
+    }
+
     let template_id: Result<i64, _> = sqlx::query(
         "SELECT id FROM schedule_template WHERE is_active = 1 ORDER BY id LIMIT 1",
     )
@@ -272,17 +285,29 @@ async fn check_and_notify(app: &AppHandle, state: &AppState) {
         if let Some(active) = active {
             let session_id: i64 = active.try_get(0).unwrap_or(0);
             let started_at: i64 = active.try_get(1).unwrap_or(now.timestamp_millis());
-            let has_pause: Result<i64, _> = sqlx::query(
+            let open_pause_count: i64 = sqlx::query(
                 "SELECT COUNT(*) FROM session_pause WHERE session_id = ? AND resumed_at IS NULL",
             )
             .bind(session_id)
             .fetch_one(&state.pool)
             .await
-            .and_then(|row| row.try_get::<i64, _>(0));
-            let active_for = now.timestamp_millis() - started_at;
+            .and_then(|row| row.try_get::<i64, _>(0))
+            .unwrap_or(0);
+            let on_break = open_pause_count > 0;
 
-            // 1) No-break nudge: clocked in 1.5+ hours without a single break
-            if active_for > 90 * 60 * 1000 && matches!(has_pause, Ok(0)) {
+            let last_break_end: Option<i64> = sqlx::query(
+                "SELECT MAX(resumed_at) FROM session_pause WHERE session_id = ? AND resumed_at IS NOT NULL",
+            )
+            .bind(session_id)
+            .fetch_one(&state.pool)
+            .await
+            .ok()
+            .and_then(|row| row.try_get::<Option<i64>, _>(0).ok().flatten());
+            let continuous_work_start = last_break_end.unwrap_or(started_at);
+            let continuous_work_ms = now.timestamp_millis() - continuous_work_start;
+
+            // 1) No-break nudge: 1.5+ hours of continuous work without a break
+            if continuous_work_ms > 90 * 60 * 1000 && !on_break {
                 send_reminder(
                     state, app,
                     &format!("{}:no-break", date_key),
@@ -295,7 +320,6 @@ async fn check_and_notify(app: &AppHandle, state: &AppState) {
 
             // 2) Input-idle nudge: clocked in but no mouse/keyboard activity for 15+ minutes
             let idle_secs = get_idle_seconds();
-            let on_break = matches!(has_pause, Ok(n) if n > 0);
             if idle_secs >= 15 * 60 && !on_break {
                 log::debug!("[notify] user idle for {}s while clocked in", idle_secs);
                 send_reminder(

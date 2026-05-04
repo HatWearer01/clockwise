@@ -55,8 +55,25 @@ function App() {
       void timerStore.refreshStatus();
       void apiCheckNotifications().catch(() => {});
     }, 30_000);
-    return () => window.clearInterval(statusRefresh);
-  }, [timerStore]);
+    const onVisible = () => {
+      if (document.visibilityState === "visible") {
+        void timerStore.refreshStatus();
+        void scheduleStore.load();
+        void apiCheckNotifications().catch(() => {});
+      }
+    };
+    const onFocus = () => {
+      void timerStore.refreshStatus();
+      void apiCheckNotifications().catch(() => {});
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    window.addEventListener("focus", onFocus);
+    return () => {
+      window.clearInterval(statusRefresh);
+      document.removeEventListener("visibilitychange", onVisible);
+      window.removeEventListener("focus", onFocus);
+    };
+  }, [timerStore, scheduleStore]);
 
   useEffect(() => {
     let unlistenClockIn: (() => void) | undefined;

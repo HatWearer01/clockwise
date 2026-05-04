@@ -161,6 +161,7 @@ describe("stateLabel", () => {
     expect(stateLabel("in_shift")).toBe("Shift active");
     expect(stateLabel("after_shift")).toBe("After shift");
     expect(stateLabel("week_done")).toBe("Week done");
+    expect(stateLabel("day_done")).toBe("Done for today");
   });
 });
 
@@ -199,5 +200,9 @@ describe("stateMessage", () => {
 
   it("returns message for week_done", () => {
     expect(stateMessage("week_done", null)).toBe("You're done for the week. Enjoy your time off!");
+  });
+
+  it("returns message for day_done", () => {
+    expect(stateMessage("day_done", null)).toBe("You're done for today. See you tomorrow!");
   });
 });

@@ -103,6 +103,7 @@ export function stateLabel(state: StatusState): string {
   if (state === "before_shift") return "Before shift";
   if (state === "in_shift") return "Shift active";
   if (state === "week_done") return "Week done";
+  if (state === "day_done") return "Done for today";
   return "After shift";
 }
 
@@ -111,6 +112,7 @@ export function stateMessage(state: StatusState, boundary: number | null): strin
   if (state === "on_break") return "Break is active. Resume when you're ready.";
   if (state === "off_day") return "No shift scheduled today. Enjoy your day off.";
   if (state === "week_done") return "You're done for the week. Enjoy your time off!";
+  if (state === "day_done") return "You're done for today. See you tomorrow!";
   if (state === "before_shift") {
     if (!boundary) return "Your shift starts later today.";
     return `Your shift starts at ${formatShortTime(boundary)}. Clock in when you're ready.`;

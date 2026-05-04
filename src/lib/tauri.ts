@@ -101,3 +101,11 @@ export function apiMarkWeekDone(done: boolean) {
 export function apiIsWeekDone() {
   return invoke<boolean>("is_week_done");
 }
+
+export function apiMarkDayDone(done: boolean) {
+  return invoke<void>("mark_day_done", { done });
+}
+
+export function apiIsDayDone() {
+  return invoke<boolean>("is_day_done");
+}

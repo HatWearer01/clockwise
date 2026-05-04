@@ -11,6 +11,7 @@ import {
   stateMessage,
   todayDateString,
 } from "../../lib/time";
+import { apiMarkDayDone } from "../../lib/tauri";
 import { useScheduleStore } from "../../store/schedule";
 import { useTimerStore } from "../../store/timer";
 
@@ -111,7 +112,7 @@ export default function TodayTab() {
             />
           </div>
           <div className="row between" style={{ fontSize: "0.78rem" }}>
-            <span className="muted">0h</span>
+            <span className="muted">{formatHoursMinutes(workedMs)} worked</span>
             <span className="muted">{formatHoursMinutes(plannedMs)} target</span>
           </div>
         </div>
@@ -130,6 +131,18 @@ export default function TodayTab() {
           active={Boolean(status.active_session)}
           onClick={() => (status.active_session ? void clockOut() : void clockIn())}
         />
+        {!status.active_session && plannedMs > 0 && (
+          <button
+            className={`chip ${status.day_done ? "chip-active" : ""}`}
+            onClick={async () => {
+              const next = !status.day_done;
+              await apiMarkDayDone(next);
+              void useTimerStore.getState().refreshStatus();
+            }}
+          >
+            {status.day_done ? "Done for today ✓" : "Done for the day"}
+          </button>
+        )}
       </div>
     </section>
   );

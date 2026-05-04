@@ -31,7 +31,10 @@ export default function Expanded() {
       transition={{ type: "spring", stiffness: 260, damping: 24 }}
     >
       <header className="expanded-header">
-        <h1>Clockwise</h1>
+        <h1 style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <img src="/app-icon.png" alt="" width={22} height={22} />
+          Clockwise
+        </h1>
         <div className="row">
           {TABS.map((tab) => (
             <button
