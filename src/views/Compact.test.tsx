@@ -40,6 +40,7 @@ describe("Compact view", () => {
         paused: false,
         week_done: false,
         day_done: false,
+      overnight_session: false,
       },
       nowMs: Date.now(),
     });
@@ -59,6 +60,7 @@ describe("Compact view", () => {
         paused: false,
         week_done: false,
         day_done: false,
+      overnight_session: false,
       },
       nowMs: Date.now(),
     });
@@ -78,6 +80,7 @@ describe("Compact view", () => {
         paused: false,
         week_done: false,
         day_done: false,
+      overnight_session: false,
       },
       nowMs: Date.now(),
     });
@@ -98,6 +101,7 @@ describe("Compact view", () => {
         paused: true,
         week_done: false,
         day_done: false,
+      overnight_session: false,
       },
       nowMs: Date.now(),
     });
@@ -117,6 +121,7 @@ describe("Compact view", () => {
         paused: false,
         week_done: false,
         day_done: false,
+      overnight_session: false,
       },
       statusFetchedAt: Date.now(),
       nowMs: Date.now(),

@@ -29,6 +29,7 @@ beforeEach(() => {
       paused: false,
       week_done: false,
       day_done: false,
+      overnight_session: false,
     },
   });
 });

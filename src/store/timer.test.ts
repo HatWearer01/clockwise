@@ -28,6 +28,7 @@ describe("timer store", () => {
         state: "in_shift" as const,
         week_done: false,
         day_done: false,
+    overnight_session: false,
         next_boundary_ms: null,
         paused: false,
       };
@@ -67,6 +68,7 @@ describe("timer store", () => {
           paused: false,
           week_done: false,
           day_done: false,
+    overnight_session: false,
         }); // get_status (refresh)
 
       await useTimerStore.getState().clockIn();
@@ -97,6 +99,7 @@ describe("timer store", () => {
           paused: false,
           week_done: false,
           day_done: false,
+    overnight_session: false,
         },
         nowMs: Date.now(),
       });
@@ -112,6 +115,7 @@ describe("timer store", () => {
           paused: false,
           week_done: false,
           day_done: false,
+    overnight_session: false,
         }); // get_status
 
       await useTimerStore.getState().clockOut();
@@ -133,6 +137,7 @@ describe("timer store", () => {
           paused: true,
           week_done: false,
           day_done: false,
+    overnight_session: false,
         });
 
       await useTimerStore.getState().startBreak();
@@ -153,6 +158,7 @@ describe("timer store", () => {
           paused: false,
           week_done: false,
           day_done: false,
+    overnight_session: false,
         });
 
       await useTimerStore.getState().resumeBreak();
@@ -182,6 +188,7 @@ describe("timer store", () => {
           paused: false,
           week_done: false,
           day_done: false,
+    overnight_session: false,
         },
         statusFetchedAt: Date.now(),
         nowMs: Date.now(),
@@ -207,6 +214,7 @@ describe("timer store", () => {
           paused: false,
           week_done: false,
           day_done: false,
+    overnight_session: false,
         },
         statusFetchedAt: fetchedAt,
         nowMs: Date.now(),
@@ -228,6 +236,7 @@ describe("timer store", () => {
           paused: true,
           week_done: false,
           day_done: false,
+    overnight_session: false,
         },
         statusFetchedAt: fetchedAt,
         nowMs: Date.now(),
@@ -255,6 +264,7 @@ describe("timer store", () => {
           paused: false,
           week_done: false,
           day_done: false,
+    overnight_session: false,
         }); // get_status
 
       await useTimerStore.getState().applyPendingRecovery(2000);

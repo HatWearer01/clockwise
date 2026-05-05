@@ -21,15 +21,24 @@ const mockWeekSummary = [
 
 const mockStats = {
   week_points: [
-    { week_label: "04/07", worked_ms: 100_000_000 },
-    { week_label: "04/14", worked_ms: 120_000_000 },
-    { week_label: "04/21", worked_ms: 90_000_000 },
-    { week_label: "04/28", worked_ms: 110_000_000 },
+    { week_label: "04/07", worked_ms: 100_000_000, week_start_date: "2026-04-06" },
+    { week_label: "04/14", worked_ms: 120_000_000, week_start_date: "2026-04-13" },
+    { week_label: "04/21", worked_ms: 90_000_000, week_start_date: "2026-04-20" },
+    { week_label: "04/28", worked_ms: 110_000_000, week_start_date: "2026-04-27" },
   ],
   avg_start_minute: 540,
   avg_end_minute: 1020,
   month_total_ms: 400_000_000,
 };
+
+function setupMocks() {
+  mockInvoke.mockImplementation((cmd: string) => {
+    if (cmd === "get_week_summary") return Promise.resolve(mockWeekSummary);
+    if (cmd === "get_stats_summary") return Promise.resolve(mockStats);
+    if (cmd === "is_week_done") return Promise.resolve(false);
+    return Promise.resolve(undefined);
+  });
+}
 
 describe("WeekTab", () => {
   it("shows loading state initially", () => {
@@ -39,11 +48,7 @@ describe("WeekTab", () => {
   });
 
   it("renders current week view with data", async () => {
-    mockInvoke
-      .mockResolvedValueOnce(mockWeekSummary)
-      .mockResolvedValueOnce(mockStats)
-      .mockResolvedValueOnce(false);
-
+    setupMocks();
     render(<WeekTab />);
 
     await waitFor(() => {
@@ -55,11 +60,7 @@ describe("WeekTab", () => {
   });
 
   it("shows day labels", async () => {
-    mockInvoke
-      .mockResolvedValueOnce(mockWeekSummary)
-      .mockResolvedValueOnce(mockStats)
-      .mockResolvedValueOnce(false);
-
+    setupMocks();
     render(<WeekTab />);
 
     await waitFor(() => {
@@ -70,11 +71,7 @@ describe("WeekTab", () => {
   });
 
   it("switches to history view", async () => {
-    mockInvoke
-      .mockResolvedValueOnce(mockWeekSummary)
-      .mockResolvedValueOnce(mockStats)
-      .mockResolvedValueOnce(false);
-
+    setupMocks();
     render(<WeekTab />);
 
     await waitFor(() => {
@@ -95,5 +92,35 @@ describe("WeekTab", () => {
     await waitFor(() => {
       expect(screen.getByText("DB error")).toBeInTheDocument();
     });
+  });
+
+  it("shows week navigation controls", async () => {
+    setupMocks();
+    render(<WeekTab />);
+
+    await waitFor(() => {
+      expect(screen.getByText("This Week")).toBeInTheDocument();
+    });
+
+    expect(screen.getByTitle("Previous week")).toBeInTheDocument();
+    expect(screen.getByText("Current week")).toBeInTheDocument();
+  });
+
+  it("history bars are clickable with tooltips", async () => {
+    setupMocks();
+    render(<WeekTab />);
+
+    await waitFor(() => {
+      expect(screen.getByText("This Week")).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByText("History"));
+
+    await waitFor(() => {
+      expect(screen.getByText("Past Weeks")).toBeInTheDocument();
+    });
+
+    expect(screen.getByTitle("View week of 2026-04-06")).toBeInTheDocument();
+    expect(screen.getByTitle("View week of 2026-04-27")).toBeInTheDocument();
   });
 });

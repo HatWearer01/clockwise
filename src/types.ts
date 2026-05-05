@@ -25,6 +25,7 @@ export type StatusResponse = {
   paused: boolean;
   week_done: boolean;
   day_done: boolean;
+  overnight_session: boolean;
 };
 
 export type ScheduleTemplate = {
@@ -63,6 +64,7 @@ export type WeekDaySummary = {
 export type WeekPoint = {
   week_label: string;
   worked_ms: number;
+  week_start_date: string;
 };
 
 export type StatsSummary = {
@@ -97,4 +99,29 @@ export type DailyTask = {
   done_at: number | null;
   created_at: number;
   position: number;
+  recurring_task_id: number | null;
+};
+
+export type RecurrenceType = "daily" | "weekdays" | "specific_days" | "weekly" | "every_n_days";
+
+export type RecurringTask = {
+  id: number;
+  text: string;
+  recurrence_type: RecurrenceType;
+  recurrence_days: string | null;
+  interval_days: number | null;
+  start_date: string;
+  end_date: string | null;
+  created_at: number;
+  active: boolean;
+};
+
+export type RecurringStatEntry = {
+  total: number;
+  done: number;
+};
+
+export type WeekTasksResponse = {
+  days: Record<string, DailyTask[]>;
+  recurring_stats: Record<number, RecurringStatEntry>;
 };

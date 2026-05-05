@@ -31,6 +31,7 @@ describe("TodayTab", () => {
         paused: false,
         week_done: false,
         day_done: false,
+      overnight_session: false,
       },
       nowMs: Date.now(),
     });
@@ -53,6 +54,7 @@ describe("TodayTab", () => {
         paused: false,
         week_done: false,
         day_done: false,
+      overnight_session: false,
       },
       nowMs: Date.now(),
     });
@@ -73,6 +75,7 @@ describe("TodayTab", () => {
         paused: false,
         week_done: false,
         day_done: false,
+      overnight_session: false,
       },
       statusFetchedAt: Date.now(),
       nowMs: Date.now(),
@@ -94,6 +97,7 @@ describe("TodayTab", () => {
         paused: false,
         week_done: false,
         day_done: false,
+      overnight_session: false,
       },
       nowMs: Date.now(),
     });
@@ -113,6 +117,7 @@ describe("TodayTab", () => {
         paused: false,
         week_done: false,
         day_done: false,
+      overnight_session: false,
       },
       nowMs: Date.now(),
     });

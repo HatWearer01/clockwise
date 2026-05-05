@@ -105,7 +105,9 @@ export default function TodayTab() {
         <div>
           <h2 style={{ marginBottom: 2 }}>{todayDateString()}</h2>
           <p className="muted" style={{ margin: 0, fontSize: "0.88rem", minHeight: "2.4em" }}>
-            {stateMessage(status.state, status.next_boundary_ms)}
+            {status.overnight_session && status.active_session
+              ? "Continuing overnight shift"
+              : stateMessage(status.state, status.next_boundary_ms)}
           </p>
         </div>
         <StatusChip state={status.state} />
@@ -120,7 +122,9 @@ export default function TodayTab() {
         <div className="today-stats-col">
           {status.active_session ? (
             <div className="today-stat today-stat-highlight">
-              <span className="today-stat-label">Current session</span>
+              <span className="today-stat-label">
+                Current session{status.overnight_session ? " (started yesterday)" : ""}
+              </span>
               <span className="today-stat-value">{formatDuration(activeElapsed)}</span>
               <span className="muted" style={{ fontSize: "0.78rem" }}>
                 Started at {formatShortTime(status.active_session.started_at)}
@@ -212,7 +216,10 @@ export default function TodayTab() {
                     checked={task.done}
                     onChange={() => void handleToggle(task.id, !task.done)}
                   />
-                  <span className={task.done ? "daily-task-text-done" : ""}>{task.text}</span>
+                  <span className={task.done ? "daily-task-text-done" : ""}>
+                    {task.recurring_task_id != null && <span className="recurring-badge" title="Recurring task">↻</span>}
+                    {task.text}
+                  </span>
                 </label>
                 <div className="daily-task-actions">
                   {!task.done && (

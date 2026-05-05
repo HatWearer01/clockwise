@@ -115,6 +115,11 @@ pub fn run() {
             commands::tasks::toggle_daily_task,
             commands::tasks::delete_daily_task,
             commands::tasks::rollover_daily_task,
+            commands::tasks::get_recurring_tasks,
+            commands::tasks::add_recurring_task,
+            commands::tasks::update_recurring_task,
+            commands::tasks::delete_recurring_task,
+            commands::tasks::get_tasks_for_week,
             notifications::check_notifications,
             window::set_mode,
             window::show_window

@@ -743,6 +743,23 @@ input[type="time"] {
   gap: 4px;
 }
 
+.history-bar-clickable {
+  cursor: pointer;
+  border-radius: 6px;
+  padding: 4px 2px;
+  transition: background 150ms;
+}
+
+.history-bar-clickable:hover {
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.history-bar-clickable:hover .history-bar {
+  opacity: 0.85;
+  transform: scaleY(1.05);
+  transform-origin: bottom;
+}
+
 .history-bar {
   width: 100%;
   max-width: 36px;
@@ -772,6 +789,10 @@ input[type="time"] {
 
 :root[data-theme="light"] .history-bar-label {
   color: rgba(23, 32, 48, 0.45);
+}
+
+:root[data-theme="light"] .history-bar-clickable:hover {
+  background: rgba(0, 0, 0, 0.04);
 }
 
 /* ---- Schedule Tab ---- */
@@ -859,12 +880,26 @@ input[type="time"] {
 
 /* ---- Compact extras ---- */
 
+.compact-datetime {
+  font-size: 0.72rem;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.01em;
+  opacity: 0.7;
+  white-space: nowrap;
+  margin-left: auto;
+  margin-right: 4px;
+}
+
 .compact-info-row {
   display: flex;
   gap: 14px;
   font-size: 0.82rem;
   margin-top: 4px;
   color: rgba(212, 223, 241, 0.8);
+}
+
+:root[data-theme="light"] .compact-datetime {
+  opacity: 0.55;
 }
 
 :root[data-theme="light"] .compact-info-row {
@@ -1158,6 +1193,31 @@ input[type="time"] {
   box-shadow: 0 4px 16px rgba(0, 0, 0, 0.1);
 }
 
+:root[data-theme="light"] .recurring-stat-chip {
+  background: rgba(0, 0, 0, 0.06);
+  color: #1c2a3e;
+}
+
+:root[data-theme="light"] .recurring-manager {
+  background: rgba(0, 0, 0, 0.03);
+  border-color: rgba(0, 0, 0, 0.10);
+}
+
+:root[data-theme="light"] .recurring-item {
+  background: rgba(0, 0, 0, 0.02);
+}
+
+:root[data-theme="light"] .recurring-select {
+  background: rgba(255, 255, 255, 0.8);
+  border-color: rgba(0, 0, 0, 0.12);
+  color: #1c2a3e;
+}
+
+:root[data-theme="light"] .recurring-select option {
+  background: #fff;
+  color: #1c2a3e;
+}
+
 .daily-task-rollover-option {
   background: none;
   border: none;
@@ -1223,6 +1283,120 @@ input[type="time"] {
   display: flex;
   gap: 4px;
   flex-wrap: wrap;
+}
+
+.tasks-week-nav {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 4px;
+}
+
+.tasks-week-label {
+  font-size: 0.85rem;
+  font-weight: 500;
+  min-width: 140px;
+  text-align: center;
+}
+
+.recurring-badge {
+  font-size: 0.78rem;
+  margin-right: 3px;
+  opacity: 0.7;
+}
+
+.recurring-stat-chip {
+  font-size: 0.68rem;
+  background: rgba(255, 255, 255, 0.08);
+  padding: 1px 5px;
+  border-radius: 6px;
+  margin-left: 6px;
+  white-space: nowrap;
+  opacity: 0.8;
+}
+
+.recurring-manager {
+  margin-top: 12px;
+  padding: 10px;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.recurring-list {
+  list-style: none;
+  padding: 0;
+  margin: 0 0 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.recurring-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 4px 6px;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.recurring-item.recurring-inactive {
+  opacity: 0.45;
+}
+
+.recurring-item-info {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.recurring-item-text {
+  font-size: 0.85rem;
+}
+
+.recurring-item-actions {
+  display: flex;
+  gap: 2px;
+  align-items: center;
+}
+
+.recurring-add-form {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.recurring-select {
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 6px;
+  color: inherit;
+  padding: 4px 8px;
+  font-size: 0.82rem;
+}
+
+.recurring-select option {
+  background: #1a1a2e;
+  color: #e0e0e0;
+}
+
+.recurring-day-picker {
+  display: flex;
+  gap: 3px;
+  flex-wrap: wrap;
+}
+
+.recurring-interval-input {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.recurring-end-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
 }
 
 /* ---- Responsive ---- */

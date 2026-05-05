@@ -71,12 +71,12 @@ export function todayISODate(): string {
   return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
 }
 
-export function weekDayDates(): Array<{ dow: number; label: string; date: string }> {
+export function weekDayDates(weekOffset = 0): Array<{ dow: number; label: string; date: string }> {
   const now = new Date();
   const dayIdx = now.getDay();
   const mondayOffset = dayIdx === 0 ? -6 : 1 - dayIdx;
   const monday = new Date(now);
-  monday.setDate(now.getDate() + mondayOffset);
+  monday.setDate(now.getDate() + mondayOffset + weekOffset * 7);
   const result: Array<{ dow: number; label: string; date: string }> = [];
   for (let i = 0; i < 7; i++) {
     const d = new Date(monday);
@@ -88,6 +88,13 @@ export function weekDayDates(): Array<{ dow: number; label: string; date: string
     });
   }
   return result;
+}
+
+export function weekRangeLabel(weekOffset: number): string {
+  const days = weekDayDates(weekOffset);
+  const mon = new Date(days[0].date + "T00:00:00");
+  const sun = new Date(days[6].date + "T00:00:00");
+  return `${MONTH_NAMES_SHORT[mon.getMonth()]} ${mon.getDate()} – ${MONTH_NAMES_SHORT[sun.getMonth()]} ${sun.getDate()}, ${sun.getFullYear()}`;
 }
 
 export function currentWeekRange(): string {

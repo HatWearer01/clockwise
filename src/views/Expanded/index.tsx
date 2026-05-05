@@ -1,5 +1,6 @@
 import { Shrink } from "lucide-react";
 import { AnimatePresence, motion } from "framer-motion";
+import Logo from "../../components/Logo";
 import { useSettingsStore, type ExpandedTab } from "../../store/settings";
 import ScheduleTab from "./ScheduleTab";
 import SettingsTab from "./SettingsTab";
@@ -35,7 +36,7 @@ export default function Expanded() {
     >
       <header className="expanded-header">
         <h1 style={{ display: "flex", alignItems: "center", gap: 8 }}>
-          <img src="/app-icon.png" alt="" width={22} height={22} />
+          <Logo size={22} />
           Clockwise
         </h1>
         <div className="row">

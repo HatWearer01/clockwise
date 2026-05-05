@@ -3,14 +3,13 @@ import { apiGetDailyTasks, apiGetStatsSummary, apiGetWeekSummary, apiIsWeekDone,
 import { useTimerStore } from "../../store/timer";
 import type { DailyTask, StatsSummary, WeekDaySummary } from "../../types";
 import {
-  currentWeekNumber,
-  currentWeekRange,
   formatDecimalHours,
   formatHoursMinutes,
   formatMinuteAsTime,
   pct,
   todayISODate,
   weekDayDates,
+  weekRangeLabel,
 } from "../../lib/time";
 
 type ViewMode = "current" | "history";
@@ -23,8 +22,11 @@ export default function WeekTab() {
   const [weekDone, setWeekDone] = useState(false);
   const [expandedDay, setExpandedDay] = useState<string | null>(null);
   const [dayTasks, setDayTasks] = useState<DailyTask[]>([]);
+  const [weekOffset, setWeekOffset] = useState(0);
 
-  const weekDates = weekDayDates();
+  const isCurrentWeek = weekOffset === 0;
+  const allWeekDays = weekDayDates(weekOffset);
+  const weekStart = allWeekDays[0].date;
   const isoToday = todayISODate();
 
   async function toggleExpandDay(date: string) {
@@ -52,17 +54,17 @@ export default function WeekTab() {
     } catch { /* ignore */ }
   }
 
-  const load = useCallback(async () => {
+  const loadWeekData = useCallback(async () => {
     try {
       setError(null);
-      const [weekData, statsData, doneStatus] = await Promise.all([
-        apiGetWeekSummary(),
-        apiGetStatsSummary(),
-        apiIsWeekDone(),
-      ]);
+      const weekData = await apiGetWeekSummary(weekStart);
       setDays(weekData);
-      setStats(statsData);
-      setWeekDone(doneStatus);
+      if (isCurrentWeek) {
+        const doneStatus = await apiIsWeekDone();
+        setWeekDone(doneStatus);
+      } else {
+        setWeekDone(false);
+      }
     } catch (e) {
       setError(
         typeof e === "object" && e && "message" in e
@@ -70,14 +72,41 @@ export default function WeekTab() {
           : "Failed to load data",
       );
     }
+  }, [weekStart, isCurrentWeek]);
+
+  const loadStats = useCallback(async () => {
+    try {
+      const statsData = await apiGetStatsSummary();
+      setStats(statsData);
+    } catch { /* ignore */ }
   }, []);
 
+  useEffect(() => { void loadWeekData(); }, [loadWeekData]);
+  useEffect(() => { void loadStats(); }, [loadStats]);
+
   useEffect(() => {
-    void load();
-  }, [load]);
+    setExpandedDay(null);
+    setDayTasks([]);
+  }, [weekOffset]);
+
+  function navigateToWeekStart(startDate: string) {
+    const today = new Date();
+    const todayDow = today.getDay();
+    const mondayOffset = todayDow === 0 ? -6 : 1 - todayDow;
+    const thisMonday = new Date(today);
+    thisMonday.setDate(today.getDate() + mondayOffset);
+    thisMonday.setHours(0, 0, 0, 0);
+
+    const target = new Date(startDate + "T00:00:00");
+    const diffMs = target.getTime() - thisMonday.getTime();
+    const diffWeeks = Math.round(diffMs / (7 * 24 * 60 * 60 * 1000));
+
+    setWeekOffset(diffWeeks);
+    setView("current");
+  }
 
   if (error) return <section className="tab-panel"><p className="muted">{error}</p></section>;
-  if (!days || !stats) return <section className="tab-panel"><p className="muted">Loading week...</p></section>;
+  if (!days) return <section className="tab-panel"><p className="muted">Loading week...</p></section>;
 
   const totalPlanned = days.reduce((s, d) => s + d.planned_ms, 0);
   const totalActual = days.reduce((s, d) => s + d.actual_ms, 0);
@@ -89,9 +118,11 @@ export default function WeekTab() {
 
   const todayDow = new Date().getDay();
   const todayWeekIndex = todayDow === 0 ? 6 : todayDow - 1;
-  const daysLeft = days.filter((_, i) => i >= todayWeekIndex && days[i].planned_ms > 0).length;
+  const daysLeft = isCurrentWeek
+    ? days.filter((_, i) => i >= todayWeekIndex && days[i].planned_ms > 0).length
+    : 0;
 
-  const maxWeekWorked = Math.max(...stats.week_points.map((w) => w.worked_ms), 1);
+  const maxWeekWorked = stats ? Math.max(...stats.week_points.map((w) => w.worked_ms), 1) : 1;
 
   return (
     <section className="tab-panel">
@@ -99,15 +130,14 @@ export default function WeekTab() {
         <div>
           <div className="row" style={{ gap: 8, alignItems: "baseline" }}>
             <h2 style={{ margin: 0 }}>
-              {view === "current" ? "This Week" : "Past Weeks"}
+              {view === "current"
+                ? (isCurrentWeek ? "This Week" : "Week View")
+                : "Past Weeks"}
             </h2>
-            <span className="muted" style={{ fontSize: "0.82rem" }}>
-              Week {currentWeekNumber()}
-            </span>
           </div>
           {view === "current" ? (
             <p className="muted" style={{ margin: "2px 0 0", fontSize: "0.85rem" }}>
-              {currentWeekRange()}
+              {weekRangeLabel(weekOffset)}
             </p>
           ) : null}
         </div>
@@ -116,7 +146,7 @@ export default function WeekTab() {
             className={view === "current" ? "chip chip-active" : "chip"}
             onClick={() => setView("current")}
           >
-            This week
+            {isCurrentWeek ? "This week" : "Detail"}
           </button>
           <button
             className={view === "history" ? "chip chip-active" : "chip"}
@@ -129,6 +159,29 @@ export default function WeekTab() {
 
       {view === "current" ? (
         <>
+          {/* Week navigation */}
+          <div className="tasks-week-nav">
+            <button className="ghost daily-task-btn" onClick={() => setWeekOffset((o) => o - 1)} title="Previous week">
+              ‹
+            </button>
+            <span className="tasks-week-label">
+              {isCurrentWeek ? "Current week" : weekRangeLabel(weekOffset)}
+            </span>
+            <button
+              className="ghost daily-task-btn"
+              onClick={() => setWeekOffset((o) => o + 1)}
+              title="Next week"
+              disabled={weekOffset >= 0}
+            >
+              ›
+            </button>
+            {!isCurrentWeek && (
+              <button className="chip" style={{ fontSize: "0.72rem", marginLeft: 4 }} onClick={() => setWeekOffset(0)}>
+                Today
+              </button>
+            )}
+          </div>
+
           <div className="stats-grid">
             <article>
               <span className="today-stat-label">Hours logged</span>
@@ -169,9 +222,9 @@ export default function WeekTab() {
             {days.map((day, idx) => {
               const progress = pct(day.actual_ms, day.planned_ms);
               const isOff = day.planned_ms === 0;
-              const isToday = day.day_of_week === todayDow;
+              const isToday = isCurrentWeek && day.day_of_week === todayDow;
               const dayOver = day.actual_ms > day.planned_ms && day.planned_ms > 0;
-              const dayDate = weekDates[idx]?.date ?? "";
+              const dayDate = allWeekDays[idx]?.date ?? "";
               const isExpanded = expandedDay === dayDate;
 
               return (
@@ -216,7 +269,10 @@ export default function WeekTab() {
                                 <span style={{ width: 16, textAlign: "center", flexShrink: 0, fontSize: "0.82rem" }}>
                                   {task.done ? "✓" : "○"}
                                 </span>
-                                <span className={task.done ? "daily-task-text-done" : ""}>{task.text}</span>
+                                <span className={task.done ? "daily-task-text-done" : ""}>
+                                  {task.recurring_task_id != null && <span className="recurring-badge" title="Recurring task">↻</span>}
+                                  {task.text}
+                                </span>
                               </span>
                               {!task.done && dayDate !== isoToday && (
                                 <button
@@ -238,7 +294,7 @@ export default function WeekTab() {
             })}
           </div>
 
-          {totalPlanned > 0 && (
+          {isCurrentWeek && totalPlanned > 0 && (
             <button
               className={`done-toggle ${weekDone ? "done-toggle-active" : ""}`}
               style={{ marginTop: 8, alignSelf: "flex-start" }}
@@ -258,17 +314,17 @@ export default function WeekTab() {
           <div className="stats-grid">
             <article>
               <span className="today-stat-label">This month</span>
-              <strong>{formatHoursMinutes(stats.month_total_ms)}</strong>
+              <strong>{formatHoursMinutes(stats?.month_total_ms ?? 0)}</strong>
               <span className="muted">total logged</span>
             </article>
-            {stats.avg_start_minute !== null ? (
+            {stats?.avg_start_minute != null ? (
               <article>
                 <span className="today-stat-label">Avg clock-in</span>
                 <strong>{formatMinuteAsTime(stats.avg_start_minute)}</strong>
                 <span className="muted">last 60 days</span>
               </article>
             ) : null}
-            {stats.avg_end_minute !== null ? (
+            {stats?.avg_end_minute != null ? (
               <article>
                 <span className="today-stat-label">Avg clock-out</span>
                 <strong>{formatMinuteAsTime(stats.avg_end_minute)}</strong>
@@ -279,14 +335,19 @@ export default function WeekTab() {
 
           <div>
             <p className="muted" style={{ margin: "0 0 8px", fontSize: "0.85rem" }}>
-              Weekly hours over the last 8 weeks
+              Weekly hours over the last 8 weeks — click a bar to view details
             </p>
             <div className="history-chart">
-              {stats.week_points.map((wp, i) => {
+              {(stats?.week_points ?? []).map((wp, i) => {
                 const barH = Math.max(4, Math.round((wp.worked_ms / maxWeekWorked) * 140));
-                const isCurrent = i === stats.week_points.length - 1;
+                const isCurrent = i === (stats?.week_points.length ?? 0) - 1;
                 return (
-                  <div key={wp.week_label} className="history-bar-col">
+                  <div
+                    key={wp.week_label}
+                    className="history-bar-col history-bar-clickable"
+                    onClick={() => navigateToWeekStart(wp.week_start_date)}
+                    title={`View week of ${wp.week_start_date}`}
+                  >
                     <span className="history-bar-value">
                       {wp.worked_ms > 0 ? formatDecimalHours(wp.worked_ms) : "-"}
                     </span>

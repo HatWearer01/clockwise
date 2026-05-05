@@ -3,12 +3,15 @@ import type {
   AppSettings,
   DailyTask,
   PendingRecovery,
+  RecurrenceType,
+  RecurringTask,
   SaveSchedulePayload,
   SchedulePayload,
   SessionRecord,
   StatsSummary,
   StatusResponse,
   WeekDaySummary,
+  WeekTasksResponse,
 } from "../types";
 
 export function apiClockIn() {
@@ -47,8 +50,8 @@ export function apiActivateTemplate(templateId: number) {
   return invoke<void>("activate_template", { templateId });
 }
 
-export function apiGetWeekSummary() {
-  return invoke<WeekDaySummary[]>("get_week_summary");
+export function apiGetWeekSummary(weekStart?: string) {
+  return invoke<WeekDaySummary[]>("get_week_summary", { weekStart: weekStart ?? null });
 }
 
 export function apiGetStatsSummary() {
@@ -137,4 +140,43 @@ export function apiDeleteDailyTask(id: number) {
 
 export function apiRolloverDailyTask(id: number, targetDate: string) {
   return invoke<void>("rollover_daily_task", { id, targetDate });
+}
+
+export function apiGetRecurringTasks() {
+  return invoke<RecurringTask[]>("get_recurring_tasks");
+}
+
+export function apiAddRecurringTask(
+  text: string,
+  recurrenceType: RecurrenceType,
+  recurrenceDays: string | null,
+  intervalDays: number | null,
+  startDate: string,
+  endDate: string | null,
+) {
+  return invoke<RecurringTask>("add_recurring_task", {
+    text, recurrenceType, recurrenceDays, intervalDays, startDate, endDate,
+  });
+}
+
+export function apiUpdateRecurringTask(
+  id: number,
+  text: string,
+  recurrenceType: RecurrenceType,
+  recurrenceDays: string | null,
+  intervalDays: number | null,
+  endDate: string | null,
+  active: boolean,
+) {
+  return invoke<void>("update_recurring_task", {
+    id, text, recurrenceType, recurrenceDays, intervalDays, endDate, active,
+  });
+}
+
+export function apiDeleteRecurringTask(id: number, deleteInstances: boolean) {
+  return invoke<void>("delete_recurring_task", { id, deleteInstances });
+}
+
+export function apiGetTasksForWeek(weekStart: string) {
+  return invoke<WeekTasksResponse>("get_tasks_for_week", { weekStart });
 }

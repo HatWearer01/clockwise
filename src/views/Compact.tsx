@@ -1,6 +1,8 @@
+import { useState, useEffect } from "react";
 import { Menu } from "lucide-react";
 import { motion } from "framer-motion";
 import ClockButton from "../components/ClockButton";
+import Logo from "../components/Logo";
 import ProgressRing from "../components/ProgressRing";
 import StatusChip from "../components/StatusChip";
 import {
@@ -19,9 +21,15 @@ export default function Compact() {
   const { setMode } = useSettingsStore();
   const { blocks } = useScheduleStore();
 
+  const [now, setNow] = useState(new Date());
+  useEffect(() => {
+    const id = setInterval(() => setNow(new Date()), 1000);
+    return () => clearInterval(id);
+  }, []);
+
   if (!status) return <section className="card">Loading...</section>;
 
-  const todayDow = new Date().getDay();
+  const todayDow = now.getDay();
   const todayBlocks = blocks.filter((b) => b.day_of_week === todayDow);
   const plannedMs = todayBlocks.reduce((s, b) => s + blockDurationMs(b.start_min, b.end_min), 0);
 
@@ -49,9 +57,14 @@ export default function Compact() {
     >
       <header className="compact-header">
         <div className="brand">
-          <img src="/app-icon.png" alt="" width={16} height={16} />
+          <Logo size={16} />
           Clockwise
         </div>
+        <time className="compact-datetime">
+          {now.toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric", year: "numeric" })}
+          {" \u00B7 "}
+          {now.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+        </time>
         <button className="ghost" onClick={() => void setMode("expanded")}>
           <Menu size={14} />
         </button>
@@ -64,7 +77,11 @@ export default function Compact() {
         </ProgressRing>
         <div className="compact-copy">
           <h1>{headline}</h1>
-          <p style={{ minHeight: "2.4em" }}>{stateMessage(status.state, status.next_boundary_ms)}</p>
+          <p style={{ minHeight: "2.4em" }}>
+            {status.overnight_session && status.active_session
+              ? "Continuing overnight shift"
+              : stateMessage(status.state, status.next_boundary_ms)}
+          </p>
           <div className="compact-info-row">
             <span>Worked: <strong>{formatHoursMinutes(liveWorked)}</strong></span>
             {status.break_today_ms > 0 ? (

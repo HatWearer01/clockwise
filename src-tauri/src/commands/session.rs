@@ -7,7 +7,7 @@ use crate::commands::schedule::ScheduleBlock;
 use crate::db::{now_ms, start_of_workday_window};
 use crate::state::AppState;
 
-#[derive(Serialize)]
+#[derive(Debug, Serialize)]
 pub struct ApiError {
     pub message: String,
 }
@@ -43,6 +43,7 @@ pub struct StatusResponse {
     pub paused: bool,
     pub week_done: bool,
     pub day_done: bool,
+    pub overnight_session: bool,
 }
 
 #[derive(Debug, Serialize)]
@@ -57,6 +58,7 @@ pub struct WeekDaySummary {
 pub struct WeekPoint {
     pub week_label: String,
     pub worked_ms: i64,
+    pub week_start_date: String,
 }
 
 #[derive(Debug, Serialize)]
@@ -426,6 +428,11 @@ pub async fn get_status(state: tauri::State<'_, AppState>) -> Result<StatusRespo
         }
     };
 
+    let overnight_session = active_session
+        .as_ref()
+        .map(|s| s.started_at < start)
+        .unwrap_or(false);
+
     Ok(StatusResponse {
         active_session,
         worked_today_ms,
@@ -435,14 +442,23 @@ pub async fn get_status(state: tauri::State<'_, AppState>) -> Result<StatusRespo
         paused,
         week_done,
         day_done,
+        overnight_session,
     })
 }
 
 #[tauri::command]
-pub async fn get_week_summary(state: tauri::State<'_, AppState>) -> Result<Vec<WeekDaySummary>, ApiError> {
+pub async fn get_week_summary(
+    state: tauri::State<'_, AppState>,
+    week_start: Option<String>,
+) -> Result<Vec<WeekDaySummary>, ApiError> {
     let template_id = active_template_id(&state.pool).await.map_err(ApiError::from)?;
-    let now = Local::now();
-    let monday = now.date_naive() - chrono::Duration::days(i64::from(now.weekday().num_days_from_monday()));
+    let monday = if let Some(ref ws) = week_start {
+        chrono::NaiveDate::parse_from_str(ws, "%Y-%m-%d")
+            .map_err(|_| ApiError::from("Invalid week_start date format"))?
+    } else {
+        let now = Local::now();
+        now.date_naive() - chrono::Duration::days(i64::from(now.weekday().num_days_from_monday()))
+    };
 
     let mut rows = Vec::new();
     for i in 0..7 {
@@ -582,6 +598,7 @@ pub async fn get_stats_summary(state: tauri::State<'_, AppState>) -> Result<Stat
         week_points.push(WeekPoint {
             week_label: week_start_date.format("%m/%d").to_string(),
             worked_ms,
+            week_start_date: week_start_date.format("%Y-%m-%d").to_string(),
         });
     }
 
@@ -726,8 +743,14 @@ pub async fn apply_pending_recovery(
     let Some(pending) = pending else {
         return Ok(());
     };
-    let safe_ended_at = ended_at.max(pending.started_at);
+    let safe_ended_at = ended_at.max(pending.started_at).min(now_ms());
     sqlx::query("UPDATE session SET ended_at = ? WHERE id = ? AND ended_at IS NULL")
+        .bind(safe_ended_at)
+        .bind(pending.session_id)
+        .execute(&state.pool)
+        .await
+        .map_err(|e| ApiError::from(e.to_string()))?;
+    sqlx::query("UPDATE session_pause SET resumed_at = ? WHERE session_id = ? AND resumed_at IS NULL")
         .bind(safe_ended_at)
         .bind(pending.session_id)
         .execute(&state.pool)
@@ -979,6 +1002,116 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn apply_pending_recovery_closes_open_pauses() {
+        let state = test_state().await;
+        let started = now_ms() - 7_200_000;
+        let paused = started + 3_600_000;
+
+        sqlx::query("INSERT INTO session (started_at, ended_at) VALUES (?, NULL)")
+            .bind(started)
+            .execute(&state.pool)
+            .await
+            .unwrap();
+
+        let session_id: i64 = sqlx::query_scalar("SELECT id FROM session ORDER BY id DESC LIMIT 1")
+            .fetch_one(&state.pool)
+            .await
+            .unwrap();
+
+        sqlx::query("INSERT INTO session_pause (session_id, paused_at, resumed_at) VALUES (?, ?, NULL)")
+            .bind(session_id)
+            .bind(paused)
+            .execute(&state.pool)
+            .await
+            .unwrap();
+
+        let pending = serde_json::json!({
+            "session_id": session_id,
+            "started_at": started,
+            "suggested_end_at": started + 5_400_000,
+        });
+        sqlx::query("INSERT INTO app_meta (key, value) VALUES ('pending_recovery', ?)")
+            .bind(pending.to_string())
+            .execute(&state.pool)
+            .await
+            .unwrap();
+
+        let ended_at = started + 5_400_000;
+        let safe_ended_at = ended_at.max(started).min(now_ms());
+
+        sqlx::query("UPDATE session SET ended_at = ? WHERE id = ? AND ended_at IS NULL")
+            .bind(safe_ended_at)
+            .bind(session_id)
+            .execute(&state.pool)
+            .await
+            .unwrap();
+
+        sqlx::query("UPDATE session_pause SET resumed_at = ? WHERE session_id = ? AND resumed_at IS NULL")
+            .bind(safe_ended_at)
+            .bind(session_id)
+            .execute(&state.pool)
+            .await
+            .unwrap();
+
+        let resumed: i64 = sqlx::query_scalar(
+            "SELECT resumed_at FROM session_pause WHERE session_id = ?",
+        )
+        .bind(session_id)
+        .fetch_one(&state.pool)
+        .await
+        .unwrap();
+
+        assert_eq!(resumed, safe_ended_at, "Open pause should be closed with session end time");
+    }
+
+    #[tokio::test]
+    async fn apply_pending_recovery_caps_future_ended_at() {
+        let state = test_state().await;
+        let started = now_ms() - 3_600_000;
+        let future_time = now_ms() + 86_400_000; // 1 day in the future
+
+        sqlx::query("INSERT INTO session (started_at, ended_at) VALUES (?, NULL)")
+            .bind(started)
+            .execute(&state.pool)
+            .await
+            .unwrap();
+
+        let session_id: i64 = sqlx::query_scalar("SELECT id FROM session ORDER BY id DESC LIMIT 1")
+            .fetch_one(&state.pool)
+            .await
+            .unwrap();
+
+        let pending = serde_json::json!({
+            "session_id": session_id,
+            "started_at": started,
+            "suggested_end_at": future_time,
+        });
+        sqlx::query("INSERT INTO app_meta (key, value) VALUES ('pending_recovery', ?)")
+            .bind(pending.to_string())
+            .execute(&state.pool)
+            .await
+            .unwrap();
+
+        let safe_ended_at = future_time.max(started).min(now_ms());
+
+        sqlx::query("UPDATE session SET ended_at = ? WHERE id = ? AND ended_at IS NULL")
+            .bind(safe_ended_at)
+            .bind(session_id)
+            .execute(&state.pool)
+            .await
+            .unwrap();
+
+        let ended: i64 = sqlx::query_scalar("SELECT ended_at FROM session WHERE id = ?")
+            .bind(session_id)
+            .fetch_one(&state.pool)
+            .await
+            .unwrap();
+
+        assert!(ended <= now_ms(), "Recovery should cap ended_at to now, not allow future timestamps");
+        assert!(ended >= started, "Recovery should not go before started_at");
+    }
+
+    #[tokio::test]
     async fn toggle_checklist_item_inserts_and_deletes() {
         let state = test_state().await;
         let now = now_ms();
@@ -1052,5 +1185,45 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(count, 0);
+    }
+
+    #[tokio::test]
+    async fn overnight_session_detected_when_started_before_midnight() {
+        let state = test_state().await;
+        let now = Local::now();
+        let today_midnight = Local
+            .from_local_datetime(&now.date_naive().and_hms_opt(0, 0, 0).unwrap())
+            .earliest()
+            .unwrap()
+            .timestamp_millis();
+        let yesterday_session_start = today_midnight - 4 * 3_600_000;
+
+        sqlx::query("INSERT INTO session (started_at, ended_at) VALUES (?, NULL)")
+            .bind(yesterday_session_start)
+            .execute(&state.pool)
+            .await
+            .unwrap();
+
+        let session = active_session(&state.pool).await.unwrap().unwrap();
+        let (start, _end) = crate::db::start_of_workday_window().unwrap();
+        let is_overnight = session.started_at < start;
+        assert!(is_overnight, "Session that started before midnight should be detected as overnight");
+    }
+
+    #[tokio::test]
+    async fn same_day_session_not_detected_as_overnight() {
+        let state = test_state().await;
+        let now = now_ms();
+
+        sqlx::query("INSERT INTO session (started_at, ended_at) VALUES (?, NULL)")
+            .bind(now - 60_000)
+            .execute(&state.pool)
+            .await
+            .unwrap();
+
+        let session = active_session(&state.pool).await.unwrap().unwrap();
+        let (start, _end) = crate::db::start_of_workday_window().unwrap();
+        let is_overnight = session.started_at < start;
+        assert!(!is_overnight, "Session that started today should not be overnight");
     }
 }

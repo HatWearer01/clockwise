@@ -1,4 +1,4 @@
-use chrono::{Duration, Local, TimeZone, Timelike};
+use chrono::{Duration, Local, TimeZone};
 use sqlx::sqlite::{SqliteConnectOptions, SqliteJournalMode, SqlitePoolOptions};
 use sqlx::{Acquire, Row, SqlitePool};
 use std::path::Path;
@@ -109,7 +109,20 @@ pub const BASE_SCHEMA_SQL: &str = r#"
           done INTEGER NOT NULL DEFAULT 0,
           done_at INTEGER,
           created_at INTEGER NOT NULL,
-          position INTEGER NOT NULL
+          position INTEGER NOT NULL,
+          recurring_task_id INTEGER REFERENCES recurring_task(id)
+        );
+
+        CREATE TABLE IF NOT EXISTS recurring_task (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          text TEXT NOT NULL,
+          recurrence_type TEXT NOT NULL,
+          recurrence_days TEXT,
+          interval_days INTEGER,
+          start_date TEXT NOT NULL,
+          end_date TEXT,
+          created_at INTEGER NOT NULL,
+          active INTEGER NOT NULL DEFAULT 1
         );
 "#;
 
@@ -125,13 +138,8 @@ pub fn plugin_migrations() -> Vec<Migration> {
 pub fn start_of_workday_window() -> Result<(i64, i64), String> {
     let now = Local::now();
     let today = now.date_naive();
-    let start_day = if now.hour() < 4 {
-        today - Duration::days(1)
-    } else {
-        today
-    };
-    let start_naive = start_day
-        .and_hms_opt(4, 0, 0)
+    let start_naive = today
+        .and_hms_opt(0, 0, 0)
         .ok_or("failed to build workday start timestamp")?;
     let start = Local
         .from_local_datetime(&start_naive)
@@ -249,6 +257,42 @@ pub async fn init_db(pool: &SqlitePool) -> Result<(), String> {
             .map_err(|e| e.to_string())?;
     }
 
+    // Ensure recurring_task table exists (for pre-existing DBs)
+    sqlx::query(
+        "CREATE TABLE IF NOT EXISTS recurring_task (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          text TEXT NOT NULL,
+          recurrence_type TEXT NOT NULL,
+          recurrence_days TEXT,
+          interval_days INTEGER,
+          start_date TEXT NOT NULL,
+          end_date TEXT,
+          created_at INTEGER NOT NULL,
+          active INTEGER NOT NULL DEFAULT 1
+        )",
+    )
+    .execute(pool)
+    .await
+    .map_err(|e| e.to_string())?;
+
+    let mut daily_task_has_recurring = false;
+    let dt_info = sqlx::query("PRAGMA table_info(daily_task)")
+        .fetch_all(pool)
+        .await
+        .map_err(|e| e.to_string())?;
+    for row in &dt_info {
+        let name: String = row.try_get(1).map_err(|e| e.to_string())?;
+        if name == "recurring_task_id" {
+            daily_task_has_recurring = true;
+        }
+    }
+    if !daily_task_has_recurring {
+        sqlx::query("ALTER TABLE daily_task ADD COLUMN recurring_task_id INTEGER REFERENCES recurring_task(id)")
+            .execute(pool)
+            .await
+            .map_err(|e| e.to_string())?;
+    }
+
     let count: i64 = sqlx::query("SELECT COUNT(*) FROM schedule")
         .fetch_one(pool)
         .await
@@ -337,6 +381,7 @@ mod tests {
         assert!(tables.contains(&"app_meta".to_string()));
         assert!(tables.contains(&"settings".to_string()));
         assert!(tables.contains(&"session_checklist_state".to_string()));
+        assert!(tables.contains(&"recurring_task".to_string()));
     }
 
     #[tokio::test]

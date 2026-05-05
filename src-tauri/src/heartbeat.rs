@@ -13,6 +13,6 @@ pub fn heartbeat_timestamp_ms(path: &PathBuf) -> Option<i64> {
 pub fn start_heartbeat_writer(path: PathBuf) {
     thread::spawn(move || loop {
         let _ = fs::write(&path, "alive");
-        thread::sleep(StdDuration::from_secs(60));
+        thread::sleep(StdDuration::from_secs(30));
     });
 }

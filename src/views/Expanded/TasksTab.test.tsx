@@ -2,12 +2,24 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { invoke } from "@tauri-apps/api/core";
 import TasksTab from "./TasksTab";
+import type { WeekTasksResponse } from "../../types";
+import { todayISODate } from "../../lib/time";
 
 const mockInvoke = vi.mocked(invoke);
 
+function makeWeekResponse(tasks: WeekTasksResponse["days"] = {}): WeekTasksResponse {
+  return { days: tasks, recurring_stats: {} };
+}
+
+const isoToday = todayISODate();
+
 beforeEach(() => {
   vi.clearAllMocks();
-  mockInvoke.mockResolvedValue([] as never);
+  mockInvoke.mockImplementation((cmd: string) => {
+    if (cmd === "get_tasks_for_week") return Promise.resolve(makeWeekResponse());
+    if (cmd === "get_recurring_tasks") return Promise.resolve([]);
+    return Promise.resolve(undefined);
+  });
 });
 
 describe("TasksTab", () => {
@@ -42,11 +54,17 @@ describe("TasksTab", () => {
   });
 
   it("renders tasks returned by the API", async () => {
-    const tasks = [
-      { id: 1, date: "2026-05-04", text: "Write tests", done: false, done_at: null, created_at: 1000, position: 0 },
-      { id: 2, date: "2026-05-04", text: "Review PR", done: true, done_at: 2000, created_at: 1001, position: 1 },
-    ];
-    mockInvoke.mockResolvedValue(tasks as never);
+    const weekData = makeWeekResponse({
+      [isoToday]: [
+        { id: 1, date: isoToday, text: "Write tests", done: false, done_at: null, created_at: 1000, position: 0, recurring_task_id: null },
+        { id: 2, date: isoToday, text: "Review PR", done: true, done_at: 2000, created_at: 1001, position: 1, recurring_task_id: null },
+      ],
+    });
+    mockInvoke.mockImplementation((cmd: string) => {
+      if (cmd === "get_tasks_for_week") return Promise.resolve(weekData);
+      if (cmd === "get_recurring_tasks") return Promise.resolve([]);
+      return Promise.resolve(undefined);
+    });
 
     render(<TasksTab />);
 
@@ -58,7 +76,6 @@ describe("TasksTab", () => {
   });
 
   it("calls invoke to add a task on form submit", async () => {
-    mockInvoke.mockResolvedValue([] as never);
     render(<TasksTab />);
 
     const input = screen.getByPlaceholderText(/Add a task/);
@@ -71,10 +88,16 @@ describe("TasksTab", () => {
   });
 
   it("calls invoke to toggle a task when checkbox clicked", async () => {
-    const tasks = [
-      { id: 1, date: "2026-05-04", text: "Toggle me", done: false, done_at: null, created_at: 1000, position: 0 },
-    ];
-    mockInvoke.mockResolvedValue(tasks as never);
+    const weekData = makeWeekResponse({
+      [isoToday]: [
+        { id: 1, date: isoToday, text: "Toggle me", done: false, done_at: null, created_at: 1000, position: 0, recurring_task_id: null },
+      ],
+    });
+    mockInvoke.mockImplementation((cmd: string) => {
+      if (cmd === "get_tasks_for_week") return Promise.resolve(weekData);
+      if (cmd === "get_recurring_tasks") return Promise.resolve([]);
+      return Promise.resolve(undefined);
+    });
 
     render(<TasksTab />);
 
@@ -90,11 +113,17 @@ describe("TasksTab", () => {
     });
   });
 
-  it("shows delete button on hover and deletes", async () => {
-    const tasks = [
-      { id: 5, date: "2026-05-04", text: "Delete me", done: false, done_at: null, created_at: 1000, position: 0 },
-    ];
-    mockInvoke.mockResolvedValue(tasks as never);
+  it("shows delete button and deletes", async () => {
+    const weekData = makeWeekResponse({
+      [isoToday]: [
+        { id: 5, date: isoToday, text: "Delete me", done: false, done_at: null, created_at: 1000, position: 0, recurring_task_id: null },
+      ],
+    });
+    mockInvoke.mockImplementation((cmd: string) => {
+      if (cmd === "get_tasks_for_week") return Promise.resolve(weekData);
+      if (cmd === "get_recurring_tasks") return Promise.resolve([]);
+      return Promise.resolve(undefined);
+    });
 
     render(<TasksTab />);
 
@@ -111,10 +140,16 @@ describe("TasksTab", () => {
   });
 
   it("shows rollover button for incomplete tasks", async () => {
-    const tasks = [
-      { id: 3, date: "2026-05-04", text: "Rollover task", done: false, done_at: null, created_at: 1000, position: 0 },
-    ];
-    mockInvoke.mockResolvedValue(tasks as never);
+    const weekData = makeWeekResponse({
+      [isoToday]: [
+        { id: 3, date: isoToday, text: "Rollover task", done: false, done_at: null, created_at: 1000, position: 0, recurring_task_id: null },
+      ],
+    });
+    mockInvoke.mockImplementation((cmd: string) => {
+      if (cmd === "get_tasks_for_week") return Promise.resolve(weekData);
+      if (cmd === "get_recurring_tasks") return Promise.resolve([]);
+      return Promise.resolve(undefined);
+    });
 
     render(<TasksTab />);
 
@@ -126,10 +161,16 @@ describe("TasksTab", () => {
   });
 
   it("does not show rollover button for completed tasks", async () => {
-    const tasks = [
-      { id: 3, date: "2026-05-04", text: "Done task", done: true, done_at: 2000, created_at: 1000, position: 0 },
-    ];
-    mockInvoke.mockResolvedValue(tasks as never);
+    const weekData = makeWeekResponse({
+      [isoToday]: [
+        { id: 3, date: isoToday, text: "Done task", done: true, done_at: 2000, created_at: 1000, position: 0, recurring_task_id: null },
+      ],
+    });
+    mockInvoke.mockImplementation((cmd: string) => {
+      if (cmd === "get_tasks_for_week") return Promise.resolve(weekData);
+      if (cmd === "get_recurring_tasks") return Promise.resolve([]);
+      return Promise.resolve(undefined);
+    });
 
     render(<TasksTab />);
 
@@ -143,5 +184,49 @@ describe("TasksTab", () => {
   it("header shows Tasks title", () => {
     render(<TasksTab />);
     expect(screen.getByText("Tasks")).toBeInTheDocument();
+  });
+
+  it("shows week navigation controls", () => {
+    render(<TasksTab />);
+    expect(screen.getByText("This week")).toBeInTheDocument();
+    expect(screen.getByTitle("Previous week")).toBeInTheDocument();
+  });
+
+  it("shows recurring button", () => {
+    render(<TasksTab />);
+    expect(screen.getByText(/Recurring/)).toBeInTheDocument();
+  });
+
+  it("shows recurring badge on tasks with recurring_task_id", async () => {
+    const weekData: WeekTasksResponse = {
+      days: {
+        [isoToday]: [
+          { id: 1, date: isoToday, text: "Standup", done: false, done_at: null, created_at: 1000, position: 0, recurring_task_id: 10 },
+        ],
+      },
+      recurring_stats: { 10: { total: 3, done: 2 } },
+    };
+    mockInvoke.mockImplementation((cmd: string) => {
+      if (cmd === "get_tasks_for_week") return Promise.resolve(weekData);
+      if (cmd === "get_recurring_tasks") return Promise.resolve([]);
+      return Promise.resolve(undefined);
+    });
+
+    render(<TasksTab />);
+
+    await waitFor(() => {
+      expect(screen.getByText("Standup")).toBeInTheDocument();
+    });
+
+    expect(screen.getByTitle("Recurring task")).toBeInTheDocument();
+    expect(screen.getByTitle("Completions this week")).toHaveTextContent("2/3");
+  });
+
+  it("opens recurring manager on button click", async () => {
+    render(<TasksTab />);
+    fireEvent.click(screen.getByText(/Recurring/));
+    await waitFor(() => {
+      expect(screen.getByText("Recurring Tasks")).toBeInTheDocument();
+    });
   });
 });

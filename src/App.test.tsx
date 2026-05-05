@@ -36,6 +36,7 @@ beforeEach(() => {
       paused: false,
       week_done: false,
       day_done: false,
+      overnight_session: false,
     },
     statusFetchedAt: Date.now(),
     notice: null,
@@ -100,6 +101,7 @@ describe("App", () => {
         paused: false,
         week_done: false,
         day_done: false,
+      overnight_session: false,
       },
       nowMs: Date.now(),
     });

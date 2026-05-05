@@ -44,14 +44,18 @@ pub async fn reconcile_stale_session(state: &AppState) -> Result<(), String> {
     .await
     .map_err(|e| e.to_string())?;
 
-    let end_local = Local
-        .timestamp_millis_opt(estimated_stop)
-        .single()
-        .map(|value| value.format("%H:%M").to_string())
-        .unwrap_or_else(|| "unknown time".to_string());
+    let start_local = Local.timestamp_millis_opt(stale.started_at).single();
+    let end_local = Local.timestamp_millis_opt(estimated_stop).single();
+    let end_label = match (&start_local, &end_local) {
+        (Some(s), Some(e)) if s.date_naive() != e.date_naive() => {
+            e.format("%b %d, %Y at %H:%M").to_string()
+        }
+        (_, Some(e)) => e.format("%H:%M").to_string(),
+        _ => "unknown time".to_string(),
+    };
     let message = format!(
         "Found an open session from last run. Suggested end time: {}. Please confirm or edit it.",
-        end_local
+        end_label
     );
     save_startup_notice(state, &message).await?;
 
