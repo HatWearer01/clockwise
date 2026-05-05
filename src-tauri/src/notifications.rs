@@ -306,21 +306,43 @@ async fn check_and_notify(app: &AppHandle, state: &AppState) {
             let continuous_work_start = last_break_end.unwrap_or(started_at);
             let continuous_work_ms = now.timestamp_millis() - continuous_work_start;
 
-            // 1) No-break nudge: 1.5+ hours of continuous work without a break
-            if continuous_work_ms > 90 * 60 * 1000 && !on_break {
+            let work_threshold_min: i64 = sqlx::query("SELECT value FROM settings WHERE key = 'idle_nudge_work_min'")
+                .fetch_optional(&state.pool)
+                .await
+                .ok()
+                .flatten()
+                .and_then(|row| row.try_get::<String, _>(0).ok())
+                .and_then(|v| v.parse::<i64>().ok())
+                .unwrap_or(90)
+                .clamp(15, 240);
+            let idle_threshold_min: i64 = sqlx::query("SELECT value FROM settings WHERE key = 'idle_nudge_idle_min'")
+                .fetch_optional(&state.pool)
+                .await
+                .ok()
+                .flatten()
+                .and_then(|row| row.try_get::<String, _>(0).ok())
+                .and_then(|v| v.parse::<i64>().ok())
+                .unwrap_or(15)
+                .clamp(5, 60);
+
+            if continuous_work_ms > work_threshold_min * 60 * 1000 && !on_break {
                 send_reminder(
                     state, app,
                     &format!("{}:no-break", date_key),
                     "Break reminder",
-                    "You've been working 1.5 hours straight. Consider taking a short break.",
+                    &format!("You've been working {} hours straight. Consider taking a short break.",
+                             if work_threshold_min >= 60 {
+                                 format!("{:.1}", work_threshold_min as f64 / 60.0)
+                             } else {
+                                 format!("{} min", work_threshold_min)
+                             }),
                     Some("break"),
                     interval_ms,
                 ).await;
             }
 
-            // 2) Input-idle nudge: clocked in but no mouse/keyboard activity for 15+ minutes
             let idle_secs = get_idle_seconds();
-            if idle_secs >= 15 * 60 && !on_break {
+            if idle_secs >= (idle_threshold_min * 60) as u64 && !on_break {
                 log::debug!("[notify] user idle for {}s while clocked in", idle_secs);
                 send_reminder(
                     state, app,
@@ -446,6 +468,31 @@ mod tests {
         let now_ms_early = started_at + threshold_ms - 1;
         let active_for_early = now_ms_early - started_at;
         assert!(active_for_early <= threshold_ms);
+    }
+
+    #[tokio::test]
+    async fn db_backed_idle_nudge_thresholds() {
+        let state = test_state().await;
+
+        sqlx::query("INSERT INTO settings (key, value) VALUES ('idle_nudge_work_min', '60')")
+            .execute(&state.pool).await.unwrap();
+        sqlx::query("INSERT INTO settings (key, value) VALUES ('idle_nudge_idle_min', '10')")
+            .execute(&state.pool).await.unwrap();
+
+        let work_str: String = sqlx::query_scalar("SELECT value FROM settings WHERE key = 'idle_nudge_work_min'")
+            .fetch_one(&state.pool).await.unwrap();
+        let idle_str: String = sqlx::query_scalar("SELECT value FROM settings WHERE key = 'idle_nudge_idle_min'")
+            .fetch_one(&state.pool).await.unwrap();
+        let work = work_str.parse::<i64>().unwrap().clamp(15, 240);
+        let idle = idle_str.parse::<i64>().unwrap().clamp(5, 60);
+
+        assert_eq!(work, 60);
+        assert_eq!(idle, 10);
+
+        let work_threshold_ms = work * 60 * 1000;
+        let started_at = 1_700_000_000_000_i64;
+        let now_ms = started_at + work_threshold_ms + 1;
+        assert!(now_ms - started_at > work_threshold_ms);
     }
 
     #[test]

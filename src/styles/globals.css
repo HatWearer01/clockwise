@@ -878,6 +878,98 @@ input[type="time"] {
   font-size: 0.78rem;
 }
 
+/* ---- Settings sub-controls ---- */
+
+.setting-sub-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px 20px;
+  padding: 6px 12px 10px;
+  margin-top: -4px;
+  border-radius: 0 0 8px 8px;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-top: none;
+}
+
+.setting-sub-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.setting-sub-text {
+  font-size: 0.78rem;
+  opacity: 0.7;
+  white-space: nowrap;
+}
+
+.setting-sub-label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.78rem;
+  opacity: 0.8;
+}
+
+.setting-time-input {
+  font-family: inherit;
+  font-size: 0.82rem;
+  padding: 3px 6px;
+  border-radius: 6px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.06);
+  color: inherit;
+  outline: none;
+  width: 110px;
+}
+.setting-time-input:focus {
+  border-color: var(--accent-clr, #60a5fa);
+}
+
+.setting-range {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 130px;
+  height: 6px;
+  border-radius: 3px;
+  background: rgba(255, 255, 255, 0.12);
+  outline: none;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+.setting-range::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: var(--accent-clr, #60a5fa);
+  cursor: pointer;
+  border: none;
+}
+.setting-range::-moz-range-thumb {
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: var(--accent-clr, #60a5fa);
+  cursor: pointer;
+  border: none;
+}
+
+:root[data-theme="light"] .setting-sub-controls {
+  background: rgba(0, 0, 0, 0.02);
+  border-color: rgba(0, 0, 0, 0.08);
+}
+:root[data-theme="light"] .setting-time-input {
+  border-color: rgba(0, 0, 0, 0.15);
+  background: rgba(0, 0, 0, 0.04);
+}
+:root[data-theme="light"] .setting-range {
+  background: rgba(0, 0, 0, 0.12);
+}
+
 /* ---- Compact extras ---- */
 
 .compact-datetime {

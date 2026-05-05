@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { apiGetDailyTasks, apiGetStatsSummary, apiGetWeekSummary, apiIsWeekDone, apiMarkWeekDone, apiRolloverDailyTask } from "../../lib/tauri";
+import { useSettingsStore } from "../../store/settings";
 import { useTimerStore } from "../../store/timer";
 import type { DailyTask, StatsSummary, WeekDaySummary } from "../../types";
 import {
@@ -15,6 +16,9 @@ import {
 type ViewMode = "current" | "history";
 
 export default function WeekTab() {
+  const { appSettings } = useSettingsStore();
+  const wsd = appSettings.week_start_day as 0 | 1;
+  const tf = appSettings.time_format;
   const [days, setDays] = useState<WeekDaySummary[] | null>(null);
   const [stats, setStats] = useState<StatsSummary | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -25,7 +29,7 @@ export default function WeekTab() {
   const [weekOffset, setWeekOffset] = useState(0);
 
   const isCurrentWeek = weekOffset === 0;
-  const allWeekDays = weekDayDates(weekOffset);
+  const allWeekDays = weekDayDates(weekOffset, wsd);
   const weekStart = allWeekDays[0].date;
   const isoToday = todayISODate();
 
@@ -57,7 +61,7 @@ export default function WeekTab() {
   const loadWeekData = useCallback(async () => {
     try {
       setError(null);
-      const weekData = await apiGetWeekSummary(weekStart);
+      const weekData = await apiGetWeekSummary(weekStart, wsd);
       setDays(weekData);
       if (isCurrentWeek) {
         const doneStatus = await apiIsWeekDone();
@@ -72,14 +76,14 @@ export default function WeekTab() {
           : "Failed to load data",
       );
     }
-  }, [weekStart, isCurrentWeek]);
+  }, [weekStart, isCurrentWeek, wsd]);
 
   const loadStats = useCallback(async () => {
     try {
-      const statsData = await apiGetStatsSummary();
+      const statsData = await apiGetStatsSummary(wsd);
       setStats(statsData);
     } catch { /* ignore */ }
-  }, []);
+  }, [wsd]);
 
   useEffect(() => { void loadWeekData(); }, [loadWeekData]);
   useEffect(() => { void loadStats(); }, [loadStats]);
@@ -137,7 +141,7 @@ export default function WeekTab() {
           </div>
           {view === "current" ? (
             <p className="muted" style={{ margin: "2px 0 0", fontSize: "0.85rem" }}>
-              {weekRangeLabel(weekOffset)}
+              {weekRangeLabel(weekOffset, wsd)}
             </p>
           ) : null}
         </div>
@@ -165,7 +169,7 @@ export default function WeekTab() {
               ‹
             </button>
             <span className="tasks-week-label">
-              {isCurrentWeek ? "Current week" : weekRangeLabel(weekOffset)}
+              {isCurrentWeek ? "Current week" : weekRangeLabel(weekOffset, wsd)}
             </span>
             <button
               className="ghost daily-task-btn"
@@ -320,14 +324,14 @@ export default function WeekTab() {
             {stats?.avg_start_minute != null ? (
               <article>
                 <span className="today-stat-label">Avg clock-in</span>
-                <strong>{formatMinuteAsTime(stats.avg_start_minute)}</strong>
+                <strong>{formatMinuteAsTime(stats.avg_start_minute, tf)}</strong>
                 <span className="muted">last 60 days</span>
               </article>
             ) : null}
             {stats?.avg_end_minute != null ? (
               <article>
                 <span className="today-stat-label">Avg clock-out</span>
-                <strong>{formatMinuteAsTime(stats.avg_end_minute)}</strong>
+                <strong>{formatMinuteAsTime(stats.avg_end_minute, tf)}</strong>
                 <span className="muted">last 60 days</span>
               </article>
             ) : null}

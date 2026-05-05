@@ -446,18 +446,30 @@ pub async fn get_status(state: tauri::State<'_, AppState>) -> Result<StatusRespo
     })
 }
 
+fn week_start_date_for(date: chrono::NaiveDate, week_start_day: i64) -> chrono::NaiveDate {
+    if week_start_day == 0 {
+        let days_since_sunday = i64::from(date.weekday().num_days_from_sunday());
+        date - chrono::Duration::days(days_since_sunday)
+    } else {
+        let days_since_monday = i64::from(date.weekday().num_days_from_monday());
+        date - chrono::Duration::days(days_since_monday)
+    }
+}
+
 #[tauri::command]
 pub async fn get_week_summary(
     state: tauri::State<'_, AppState>,
     week_start: Option<String>,
+    week_start_day: Option<i64>,
 ) -> Result<Vec<WeekDaySummary>, ApiError> {
     let template_id = active_template_id(&state.pool).await.map_err(ApiError::from)?;
+    let wsd = week_start_day.unwrap_or(1);
     let monday = if let Some(ref ws) = week_start {
         chrono::NaiveDate::parse_from_str(ws, "%Y-%m-%d")
             .map_err(|_| ApiError::from("Invalid week_start date format"))?
     } else {
         let now = Local::now();
-        now.date_naive() - chrono::Duration::days(i64::from(now.weekday().num_days_from_monday()))
+        week_start_date_for(now.date_naive(), wsd)
     };
 
     let mut rows = Vec::new();
@@ -574,13 +586,16 @@ pub async fn is_week_done(state: tauri::State<'_, AppState>) -> Result<bool, Api
 }
 
 #[tauri::command]
-pub async fn get_stats_summary(state: tauri::State<'_, AppState>) -> Result<StatsSummary, ApiError> {
+pub async fn get_stats_summary(
+    state: tauri::State<'_, AppState>,
+    week_start_day: Option<i64>,
+) -> Result<StatsSummary, ApiError> {
     let now = Local::now();
+    let wsd = week_start_day.unwrap_or(1);
 
     let mut week_points = Vec::new();
     for offset in (0..8).rev() {
-        let week_start_date = now.date_naive()
-            - chrono::Duration::days(i64::from(now.weekday().num_days_from_monday()))
+        let week_start_date = week_start_date_for(now.date_naive(), wsd)
             - chrono::Duration::days(i64::from(offset * 7));
         let week_start = Local
             .from_local_datetime(

@@ -1,9 +1,11 @@
 import { FolderOpen } from "lucide-react";
 import { apiOpenDataFolder } from "../../lib/tauri";
+import { formatMinuteAsTime, timeInputValue, parseTimeInput } from "../../lib/time";
 import { useSettingsStore } from "../../store/settings";
 
 export default function SettingsTab() {
   const { theme, setTheme, appSettings, setAppSettings, settingsSaving } = useSettingsStore();
+  const tf = appSettings.time_format;
 
   return (
     <section className="tab-panel">
@@ -12,6 +14,7 @@ export default function SettingsTab() {
         Customize how Clockwise works for you.
       </p>
       <div className="settings-list">
+        {/* 1. Theme */}
         <article className="setting-row">
           <div>
             <span>Theme</span>
@@ -30,6 +33,99 @@ export default function SettingsTab() {
           </div>
         </article>
 
+        {/* 2. Always on top */}
+        <article className="setting-row">
+          <div>
+            <span>Always on top</span>
+            <p className="muted setting-desc">Keep the Clockwise window above all other windows.</p>
+          </div>
+          <div className="button-group">
+            <button
+              className={appSettings.always_on_top ? "chip chip-active" : "chip"}
+              onClick={() => void setAppSettings({ always_on_top: true })}
+            >
+              On
+            </button>
+            <button
+              className={!appSettings.always_on_top ? "chip chip-active" : "chip"}
+              onClick={() => void setAppSettings({ always_on_top: false })}
+            >
+              Off
+            </button>
+          </div>
+        </article>
+
+        {/* 3. Window opacity */}
+        <article className="setting-row">
+          <div>
+            <span>Window opacity</span>
+            <p className="muted setting-desc">
+              Adjust transparency. Currently {Math.round(appSettings.window_opacity * 100)}%.
+            </p>
+          </div>
+          <input
+            type="range"
+            className="setting-range"
+            min={0.45}
+            max={1}
+            step={0.05}
+            value={appSettings.window_opacity}
+            onInput={(e) => {
+              const val = parseFloat((e.target as HTMLInputElement).value);
+              document.documentElement.style.setProperty("--window-opacity", String(val));
+            }}
+            onChange={(e) => {
+              const val = parseFloat((e.target as HTMLInputElement).value);
+              void setAppSettings({ window_opacity: val });
+            }}
+          />
+        </article>
+
+        {/* 4. Week start day */}
+        <article className="setting-row">
+          <div>
+            <span>Week starts on</span>
+            <p className="muted setting-desc">Choose which day your work week begins.</p>
+          </div>
+          <div className="button-group">
+            <button
+              className={appSettings.week_start_day === 1 ? "chip chip-active" : "chip"}
+              onClick={() => void setAppSettings({ week_start_day: 1 })}
+            >
+              Monday
+            </button>
+            <button
+              className={appSettings.week_start_day === 0 ? "chip chip-active" : "chip"}
+              onClick={() => void setAppSettings({ week_start_day: 0 })}
+            >
+              Sunday
+            </button>
+          </div>
+        </article>
+
+        {/* 5. Time format */}
+        <article className="setting-row">
+          <div>
+            <span>Time format</span>
+            <p className="muted setting-desc">Display times in 12-hour or 24-hour format.</p>
+          </div>
+          <div className="button-group">
+            <button
+              className={appSettings.time_format === "12h" ? "chip chip-active" : "chip"}
+              onClick={() => void setAppSettings({ time_format: "12h" })}
+            >
+              12h
+            </button>
+            <button
+              className={appSettings.time_format === "24h" ? "chip chip-active" : "chip"}
+              onClick={() => void setAppSettings({ time_format: "24h" })}
+            >
+              24h
+            </button>
+          </div>
+        </article>
+
+        {/* 6. Autostart */}
         <article className="setting-row">
           <div>
             <span>Autostart with Windows</span>
@@ -51,6 +147,7 @@ export default function SettingsTab() {
           </div>
         </article>
 
+        {/* 7. Notifications */}
         <article className="setting-row">
           <div>
             <span>Notifications</span>
@@ -72,6 +169,7 @@ export default function SettingsTab() {
           </div>
         </article>
 
+        {/* 8. Reminder interval */}
         <article className="setting-row">
           <div>
             <span>Reminder interval</span>
@@ -90,10 +188,15 @@ export default function SettingsTab() {
           </div>
         </article>
 
+        {/* 9. Quiet hours (upgraded) */}
         <article className="setting-row">
           <div>
             <span>Quiet hours</span>
-            <p className="muted setting-desc">Suppress notifications between 10 PM and 8 AM.</p>
+            <p className="muted setting-desc">
+              {appSettings.quiet_hours_enabled
+                ? `Notifications silenced ${formatMinuteAsTime(appSettings.quiet_hours_start_min, tf)} – ${formatMinuteAsTime(appSettings.quiet_hours_end_min, tf)}.`
+                : "Suppress notifications during set hours."}
+            </p>
           </div>
           <div className="button-group">
             <button
@@ -110,11 +213,38 @@ export default function SettingsTab() {
             </button>
           </div>
         </article>
+        {appSettings.quiet_hours_enabled && (
+          <div className="setting-sub-controls">
+            <label className="setting-sub-label">
+              From
+              <input
+                type="time"
+                className="setting-time-input"
+                value={timeInputValue(appSettings.quiet_hours_start_min)}
+                onChange={(e) => void setAppSettings({ quiet_hours_start_min: parseTimeInput(e.target.value) })}
+              />
+            </label>
+            <label className="setting-sub-label">
+              To
+              <input
+                type="time"
+                className="setting-time-input"
+                value={timeInputValue(appSettings.quiet_hours_end_min)}
+                onChange={(e) => void setAppSettings({ quiet_hours_end_min: parseTimeInput(e.target.value) })}
+              />
+            </label>
+          </div>
+        )}
 
+        {/* 10. Idle nudge (upgraded) */}
         <article className="setting-row">
           <div>
             <span>Idle nudge</span>
-            <p className="muted setting-desc">Nudge after 1.5 hours with no break, or 15 minutes of no mouse/keyboard activity while clocked in.</p>
+            <p className="muted setting-desc">
+              {appSettings.idle_nudge_enabled
+                ? `Break reminder after ${appSettings.idle_nudge_work_min} min, inactivity alert after ${appSettings.idle_nudge_idle_min} min.`
+                : "Nudge after long continuous work or keyboard/mouse inactivity."}
+            </p>
           </div>
           <div className="button-group">
             <button
@@ -131,7 +261,40 @@ export default function SettingsTab() {
             </button>
           </div>
         </article>
+        {appSettings.idle_nudge_enabled && (
+          <div className="setting-sub-controls">
+            <div className="setting-sub-row">
+              <span className="setting-sub-text">Break reminder after</span>
+              <div className="button-group">
+                {[30, 60, 90, 120].map((m) => (
+                  <button
+                    key={m}
+                    className={appSettings.idle_nudge_work_min === m ? "chip chip-active" : "chip"}
+                    onClick={() => void setAppSettings({ idle_nudge_work_min: m })}
+                  >
+                    {m >= 60 ? `${m / 60}h` : `${m}m`}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div className="setting-sub-row">
+              <span className="setting-sub-text">Inactivity alert after</span>
+              <div className="button-group">
+                {[5, 10, 15, 30].map((m) => (
+                  <button
+                    key={m}
+                    className={appSettings.idle_nudge_idle_min === m ? "chip chip-active" : "chip"}
+                    onClick={() => void setAppSettings({ idle_nudge_idle_min: m })}
+                  >
+                    {m}m
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+        )}
 
+        {/* 11. Data folder */}
         <article className="setting-row">
           <div>
             <span>Data folder</span>

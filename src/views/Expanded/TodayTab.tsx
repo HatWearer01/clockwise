@@ -14,6 +14,7 @@ import {
   todayISODate,
   weekDayDates,
 } from "../../lib/time";
+import { useSettingsStore } from "../../store/settings";
 import {
   apiAddDailyTask,
   apiDeleteDailyTask,
@@ -29,6 +30,9 @@ import { useTimerStore } from "../../store/timer";
 export default function TodayTab() {
   const { status, nowMs, clockIn, clockOut, startBreak, resumeBreak } = useTimerStore();
   const { blocks } = useScheduleStore();
+  const { appSettings } = useSettingsStore();
+  const wsd = appSettings.week_start_day as 0 | 1;
+  const tf = appSettings.time_format;
 
   const isoToday = todayISODate();
   const [tasks, setTasks] = useState<DailyTask[]>([]);
@@ -97,7 +101,7 @@ export default function TodayTab() {
     } catch { /* ignore */ }
   }
 
-  const weekDays = weekDayDates().filter((d) => d.date !== isoToday);
+  const weekDays = weekDayDates(0, wsd).filter((d) => d.date !== isoToday);
 
   return (
     <section className="tab-panel">
@@ -127,7 +131,7 @@ export default function TodayTab() {
               </span>
               <span className="today-stat-value">{formatDuration(activeElapsed)}</span>
               <span className="muted" style={{ fontSize: "0.78rem" }}>
-                Started at {formatShortTime(status.active_session.started_at)}
+                Started at {formatShortTime(status.active_session.started_at, tf)}
               </span>
             </div>
           ) : null}
@@ -161,7 +165,7 @@ export default function TodayTab() {
             <span className="today-stat-label">Today's schedule</span>
             <span className="today-stat-value" style={{ fontSize: "0.95rem" }}>
               {scheduleStart !== null && scheduleEnd !== null
-                ? `${formatMinuteAsTime(scheduleStart)} - ${formatMinuteAsTime(scheduleEnd)} (${formatHoursMinutes(plannedMs)})`
+                ? `${formatMinuteAsTime(scheduleStart, tf)} - ${formatMinuteAsTime(scheduleEnd, tf)} (${formatHoursMinutes(plannedMs)})`
                 : "No shift today"}
             </span>
           </div>

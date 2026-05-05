@@ -1,4 +1,7 @@
+use sqlx::Row;
 use tauri::{LogicalSize, Manager, WebviewWindow};
+
+use crate::state::AppState;
 
 #[tauri::command]
 pub fn show_window(window: WebviewWindow) -> Result<(), String> {
@@ -33,11 +36,23 @@ pub fn set_mode(window: WebviewWindow, mode: String) -> Result<(), String> {
 }
 
 pub fn init_window_mode_support(app: &tauri::App) {
-    #[cfg(target_os = "windows")]
-    {
-        use window_vibrancy::{apply_acrylic, apply_mica};
+    if let Some(window) = app.get_webview_window("main") {
+        let state = app.state::<AppState>();
+        let always_on_top = tauri::async_runtime::block_on(async {
+            sqlx::query("SELECT value FROM settings WHERE key = 'always_on_top'")
+                .fetch_optional(&state.pool)
+                .await
+                .ok()
+                .flatten()
+                .and_then(|row| row.try_get::<String, _>(0).ok())
+                .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
+                .unwrap_or(false)
+        });
+        let _ = window.set_always_on_top(always_on_top);
 
-        if let Some(window) = app.get_webview_window("main") {
+        #[cfg(target_os = "windows")]
+        {
+            use window_vibrancy::{apply_acrylic, apply_mica};
             let _ = apply_mica(&window, Some(true))
                 .or_else(|_| apply_acrylic(&window, Some((18, 18, 18, 125))));
         }

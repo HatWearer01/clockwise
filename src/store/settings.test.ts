@@ -18,6 +18,11 @@ beforeEach(() => {
       quiet_hours_end_min: 480,
       reminder_interval_min: 5,
       window_opacity: 0.96,
+      always_on_top: false,
+      week_start_day: 1,
+      time_format: "12h",
+      idle_nudge_work_min: 90,
+      idle_nudge_idle_min: 15,
     },
     settingsSaving: false,
   });

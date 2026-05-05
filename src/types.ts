@@ -83,6 +83,11 @@ export type AppSettings = {
   quiet_hours_end_min: number;
   reminder_interval_min: number;
   window_opacity: number;
+  always_on_top: boolean;
+  week_start_day: 0 | 1;
+  time_format: "12h" | "24h";
+  idle_nudge_work_min: number;
+  idle_nudge_idle_min: number;
 };
 
 export type PendingRecovery = {

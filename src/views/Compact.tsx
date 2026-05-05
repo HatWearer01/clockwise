@@ -63,7 +63,7 @@ export default function Compact() {
         <time className="compact-datetime">
           {now.toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric", year: "numeric" })}
           {" \u00B7 "}
-          {now.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+          {now.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hour12: useSettingsStore.getState().appSettings.time_format === "12h" })}
         </time>
         <button className="ghost" onClick={() => void setMode("expanded")}>
           <Menu size={14} />

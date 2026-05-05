@@ -50,12 +50,12 @@ export function apiActivateTemplate(templateId: number) {
   return invoke<void>("activate_template", { templateId });
 }
 
-export function apiGetWeekSummary(weekStart?: string) {
-  return invoke<WeekDaySummary[]>("get_week_summary", { weekStart: weekStart ?? null });
+export function apiGetWeekSummary(weekStart?: string, weekStartDay?: number) {
+  return invoke<WeekDaySummary[]>("get_week_summary", { weekStart: weekStart ?? null, weekStartDay: weekStartDay ?? null });
 }
 
-export function apiGetStatsSummary() {
-  return invoke<StatsSummary>("get_stats_summary");
+export function apiGetStatsSummary(weekStartDay?: number) {
+  return invoke<StatsSummary>("get_stats_summary", { weekStartDay: weekStartDay ?? null });
 }
 
 export function apiConsumeStartupNotice() {

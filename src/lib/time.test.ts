@@ -8,6 +8,7 @@ import {
   formatMinuteAsTime,
   timeInputValue,
   parseTimeInput,
+  weekDayDates,
   pct,
   stateLabel,
   stateMessage,
@@ -96,24 +97,45 @@ describe("formatDecimalHours", () => {
 });
 
 describe("formatMinuteAsTime", () => {
-  it("formats midnight", () => {
+  it("formats midnight 12h", () => {
     expect(formatMinuteAsTime(0)).toBe("12:00 AM");
+    expect(formatMinuteAsTime(0, "12h")).toBe("12:00 AM");
   });
 
-  it("formats noon", () => {
+  it("formats noon 12h", () => {
     expect(formatMinuteAsTime(720)).toBe("12:00 PM");
   });
 
-  it("formats morning time", () => {
+  it("formats morning time 12h", () => {
     expect(formatMinuteAsTime(540)).toBe("9:00 AM");
   });
 
-  it("formats afternoon time", () => {
+  it("formats afternoon time 12h", () => {
     expect(formatMinuteAsTime(810)).toBe("1:30 PM");
   });
 
-  it("formats 11 PM", () => {
+  it("formats 11 PM 12h", () => {
     expect(formatMinuteAsTime(1380)).toBe("11:00 PM");
+  });
+
+  it("formats midnight 24h", () => {
+    expect(formatMinuteAsTime(0, "24h")).toBe("00:00");
+  });
+
+  it("formats noon 24h", () => {
+    expect(formatMinuteAsTime(720, "24h")).toBe("12:00");
+  });
+
+  it("formats morning 24h", () => {
+    expect(formatMinuteAsTime(540, "24h")).toBe("09:00");
+  });
+
+  it("formats afternoon 24h", () => {
+    expect(formatMinuteAsTime(810, "24h")).toBe("13:30");
+  });
+
+  it("formats 11 PM 24h", () => {
+    expect(formatMinuteAsTime(1380, "24h")).toBe("23:00");
   });
 });
 
@@ -132,6 +154,31 @@ describe("parseTimeInput", () => {
     expect(parseTimeInput("17:00")).toBe(1020);
     expect(parseTimeInput("00:00")).toBe(0);
     expect(parseTimeInput("01:30")).toBe(90);
+  });
+});
+
+describe("weekDayDates", () => {
+  it("returns 7 days with Monday start (default)", () => {
+    const days = weekDayDates(0, 1);
+    expect(days).toHaveLength(7);
+    expect(days[0].dow).toBe(1); // Monday
+    expect(days[6].dow).toBe(0); // Sunday
+  });
+
+  it("returns 7 days with Sunday start", () => {
+    const days = weekDayDates(0, 0);
+    expect(days).toHaveLength(7);
+    expect(days[0].dow).toBe(0); // Sunday
+    expect(days[6].dow).toBe(6); // Saturday
+  });
+
+  it("week offset shifts by 7 days", () => {
+    const current = weekDayDates(0, 1);
+    const prev = weekDayDates(-1, 1);
+    const currentStart = new Date(current[0].date + "T00:00:00");
+    const prevStart = new Date(prev[0].date + "T00:00:00");
+    const diffDays = (currentStart.getTime() - prevStart.getTime()) / (24 * 60 * 60 * 1000);
+    expect(diffDays).toBe(7);
   });
 });
 

@@ -11,7 +11,7 @@ Built with Tauri 2, React 19, and TypeScript. Windows native.
 - **Clock in/out and break tracking** — one-click clock in, take breaks, see worked vs break time separately
 - **Weekly schedule** — set your planned hours per day, including overnight shifts (e.g. 11 PM to 7 AM); overnight sessions are attributed to the day they started and clearly labeled in the UI
 - **"Done for the day / week" toggles** — mark your day or week as complete early; the entire app reflects this (no more "in shift" reminders or clock-in nudges)
-- **Smart notifications** — configurable reminder interval (1–30 min), repeating clock-in/out nudges via Windows toast + in-app banner, with optional quiet hours
+- **Smart notifications** — configurable reminder interval (1–30 min), repeating clock-in/out nudges via Windows toast + in-app banner, with configurable quiet hours (custom start/end times) and customizable idle nudge thresholds (break reminder after N min, inactivity alert after N min)
 - **Close to tray** — X button hides to system tray; left-click tray icon toggles visibility, right-click for menu
 - **Daily task checklist** — create tasks for any day, check them off, roll over incomplete tasks to other days; standalone Tasks tab plus inline tasks on Today and Week views
 - **Recurring tasks** — set tasks to repeat daily, on weekdays, specific days of the week, weekly, or every N days; instances are auto-created and track weekly completion stats (e.g. "3/5 done this week")
@@ -19,6 +19,7 @@ Built with Tauri 2, React 19, and TypeScript. Windows native.
 - **Compact and expanded modes** — compact floating widget with live date/time and key stats, or full dashboard with Today, Tasks, Schedule, Week, and Settings tabs
 - **Weekly stats and history** — progress bars, hours logged vs planned, 8-week history chart with clickable bars; navigate to any past week's full day-by-day breakdown with tasks
 - **Crash recovery** — heartbeat file (every 30s) detects unclean shutdowns; on next launch, proposes an end time for the orphaned session, closes any dangling breaks, and caps recovery to prevent future timestamps
+- **Settings** — always-on-top toggle, window opacity slider, week start day (Monday/Sunday), 12h/24h time format, autostart, notification and idle nudge controls with sub-options
 - **Lock/sleep detection** — detects Windows session lock/unlock and sleep/wake events; pauses tracking context so idle time isn't counted
 
 ## Tech Stack
@@ -63,13 +64,13 @@ npm run test:coverage
 cd src-tauri && cargo test
 ```
 
-### Test Architecture — 256 tests across 3 layers
+### Test Architecture — 275 tests across 3 layers
 
 Every feature is covered by **three test layers**: Rust backend unit tests, frontend component/store tests, and full-stack E2E smoke tests. All three must pass before shipping.
 
 ---
 
-#### Layer 1 · Rust Backend Tests (71 tests)
+#### Layer 1 · Rust Backend Tests (75 tests)
 
 Located inline in each module as `#[cfg(test)] mod tests { ... }`. These test the data layer and business logic directly against an in-memory SQLite database, so they run fast and in isolation.
 
@@ -79,8 +80,8 @@ Located inline in each module as `#[cfg(test)] mod tests { ... }`. These test th
 | `commands/session.rs` | Clock in/out, break start/resume, pause subtraction from worked time, active session detection, pending recovery clamping, recovery pause closure, recovery future-time cap, checklist toggle, day/week done, overnight session detection |
 | `commands/tasks.rs` | Daily task CRUD, toggle done/undone, rollover, sort ordering, delete; recurring task recurrence patterns (daily, weekdays, specific days, weekly, every N days), auto-instantiation, end-date boundaries, week query aggregation, recurring stats |
 | `commands/schedule.rs` | Block CRUD, validation (day range, time range), template activation, legacy schedule sync, cascade deletes |
-| `commands/settings.rs` | Setting defaults, round-trip persistence, opacity clamping, boolean parsing |
-| `notifications.rs` | Interval-based reminder dedup, quiet hours (normal and wrap-around), overtime nudge, idle nudge, day/week-done suppression |
+| `commands/settings.rs` | Setting defaults, round-trip persistence, opacity clamping, boolean parsing, new keys (always_on_top, week_start_day, time_format, idle nudge thresholds), clamping validation |
+| `notifications.rs` | Interval-based reminder dedup, quiet hours (normal and wrap-around), overtime nudge, idle nudge, DB-backed threshold validation, day/week-done suppression |
 | `startup.rs` | Stale session reconciliation, pending recovery creation, startup notice lifecycle, heartbeat file handling |
 | `tray.rs` | System tray setup, left-click toggle, right-click menu (show/clock in/clock out/quit) |
 | `lock_detect.rs` | Windows session lock/unlock and sleep/wake detection via message-only window |
@@ -89,7 +90,7 @@ Located inline in each module as `#[cfg(test)] mod tests { ... }`. These test th
 
 ---
 
-#### Layer 2 · Frontend Tests (163 tests)
+#### Layer 2 · Frontend Tests (178 tests)
 
 Powered by **Vitest** + **React Testing Library** + **jsdom**. The Tauri IPC layer (`@tauri-apps/api`) is mocked globally in `src/test-setup.ts`, allowing all frontend logic to be tested without a running Tauri backend.
 
@@ -176,7 +177,7 @@ npm run smoke
 
 - **Three layers, one goal:** Backend unit tests catch logic bugs, frontend tests catch UI/state bugs, E2E tests catch integration bugs across the full stack. Every new feature should be covered by at least two of these layers.
 - **Isolation:** Each test creates its own in-memory database (Rust) or resets store state (frontend). Tests never depend on execution order.
-- **Speed:** The unit/component suite (234 tests) runs in under 10 seconds. E2E tests take longer (build + launch + drive) but cover the real binary.
+- **Speed:** The unit/component suite (253 tests) runs in under 10 seconds. E2E tests take longer (build + launch + drive) but cover the real binary.
 - **No network/OS dependencies:** All external APIs (Tauri IPC, notifications, window management, filesystem heartbeat) are mocked or use temp files in unit tests. E2E tests run the actual app against a fresh SQLite database.
 - **Static analysis:** ESLint with `eslint-plugin-react-hooks` catches hooks-order violations (conditional hooks, hooks after early returns) at lint time, before they become runtime crashes.
 - **Feature-aligned:** Tests are organized by feature, not by test type. This makes it easy to find and extend coverage when modifying a specific feature.
@@ -201,7 +202,7 @@ clockwise/
 │       ├── state.rs        # AppState definition (DB pool, mutexes)
 │       ├── notifications.rs # Reminder system with interval dedup
 │       ├── tray.rs         # System tray icon and menu
-│       ├── window.rs       # Window mode switching, vibrancy
+│       ├── window.rs       # Window mode switching, vibrancy, always-on-top
 │       ├── lock_detect.rs  # Windows lock/sleep detection
 │       ├── startup.rs      # Session recovery on app restart
 │       ├── heartbeat.rs    # Liveness file for crash recovery

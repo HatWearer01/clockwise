@@ -38,13 +38,16 @@ export function formatDecimalHours(ms: number): string {
   return hours.toFixed(1) + "h";
 }
 
-export function formatShortTime(timestampMs: number): string {
-  return new Date(timestampMs).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+export function formatShortTime(timestampMs: number, format: "12h" | "24h" = "12h"): string {
+  return new Date(timestampMs).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hour12: format === "12h" });
 }
 
-export function formatMinuteAsTime(minuteOfDay: number): string {
+export function formatMinuteAsTime(minuteOfDay: number, format: "12h" | "24h" = "12h"): string {
   const h = Math.floor(minuteOfDay / 60);
   const m = minuteOfDay % 60;
+  if (format === "24h") {
+    return `${h.toString().padStart(2, "0")}:${m.toString().padStart(2, "0")}`;
+  }
   const ampm = h >= 12 ? "PM" : "AM";
   const h12 = h === 0 ? 12 : h > 12 ? h - 12 : h;
   return `${h12}:${m.toString().padStart(2, "0")} ${ampm}`;
@@ -71,16 +74,18 @@ export function todayISODate(): string {
   return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
 }
 
-export function weekDayDates(weekOffset = 0): Array<{ dow: number; label: string; date: string }> {
+export function weekDayDates(weekOffset = 0, startDay: 0 | 1 = 1): Array<{ dow: number; label: string; date: string }> {
   const now = new Date();
   const dayIdx = now.getDay();
-  const mondayOffset = dayIdx === 0 ? -6 : 1 - dayIdx;
-  const monday = new Date(now);
-  monday.setDate(now.getDate() + mondayOffset + weekOffset * 7);
+  const firstDayOffset = startDay === 0
+    ? -dayIdx
+    : (dayIdx === 0 ? -6 : 1 - dayIdx);
+  const first = new Date(now);
+  first.setDate(now.getDate() + firstDayOffset + weekOffset * 7);
   const result: Array<{ dow: number; label: string; date: string }> = [];
   for (let i = 0; i < 7; i++) {
-    const d = new Date(monday);
-    d.setDate(monday.getDate() + i);
+    const d = new Date(first);
+    d.setDate(first.getDate() + i);
     result.push({
       dow: d.getDay(),
       label: DAY_NAMES_SHORT[d.getDay()],
@@ -90,22 +95,15 @@ export function weekDayDates(weekOffset = 0): Array<{ dow: number; label: string
   return result;
 }
 
-export function weekRangeLabel(weekOffset: number): string {
-  const days = weekDayDates(weekOffset);
-  const mon = new Date(days[0].date + "T00:00:00");
-  const sun = new Date(days[6].date + "T00:00:00");
-  return `${MONTH_NAMES_SHORT[mon.getMonth()]} ${mon.getDate()} – ${MONTH_NAMES_SHORT[sun.getMonth()]} ${sun.getDate()}, ${sun.getFullYear()}`;
+export function weekRangeLabel(weekOffset: number, startDay: 0 | 1 = 1): string {
+  const days = weekDayDates(weekOffset, startDay);
+  const first = new Date(days[0].date + "T00:00:00");
+  const last = new Date(days[6].date + "T00:00:00");
+  return `${MONTH_NAMES_SHORT[first.getMonth()]} ${first.getDate()} – ${MONTH_NAMES_SHORT[last.getMonth()]} ${last.getDate()}, ${last.getFullYear()}`;
 }
 
-export function currentWeekRange(): string {
-  const now = new Date();
-  const dayIdx = now.getDay();
-  const mondayOffset = dayIdx === 0 ? -6 : 1 - dayIdx;
-  const monday = new Date(now);
-  monday.setDate(now.getDate() + mondayOffset);
-  const sunday = new Date(monday);
-  sunday.setDate(monday.getDate() + 6);
-  return `${MONTH_NAMES_SHORT[monday.getMonth()]} ${monday.getDate()} - ${MONTH_NAMES_SHORT[sunday.getMonth()]} ${sunday.getDate()}, ${sunday.getFullYear()}`;
+export function currentWeekRange(startDay: 0 | 1 = 1): string {
+  return weekRangeLabel(0, startDay);
 }
 
 export function currentWeekNumber(): number {

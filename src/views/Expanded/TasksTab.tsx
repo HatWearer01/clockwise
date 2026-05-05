@@ -12,6 +12,7 @@ import {
   apiUpdateRecurringTask,
 } from "../../lib/tauri";
 import { todayISODate, weekDayDates, weekRangeLabel } from "../../lib/time";
+import { useSettingsStore } from "../../store/settings";
 import type { DailyTask, RecurrenceType, RecurringTask, WeekTasksResponse } from "../../types";
 
 const RECURRENCE_LABELS: Record<RecurrenceType, string> = {
@@ -25,10 +26,12 @@ const RECURRENCE_LABELS: Record<RecurrenceType, string> = {
 const DOW_LABELS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
 export default function TasksTab() {
+  const { appSettings } = useSettingsStore();
+  const wsd = appSettings.week_start_day as 0 | 1;
   const isoToday = todayISODate();
 
   const [weekOffset, setWeekOffset] = useState(0);
-  const allWeekDays = weekDayDates(weekOffset);
+  const allWeekDays = weekDayDates(weekOffset, wsd);
   const weekStart = allWeekDays[0].date;
   const isCurrentWeek = weekOffset === 0;
   const isPastWeek = weekOffset < 0;
@@ -176,7 +179,7 @@ export default function TasksTab() {
     return RECURRENCE_LABELS[rt.recurrence_type as RecurrenceType] ?? rt.recurrence_type;
   }
 
-  const rolloverTargets = weekDayDates(0).filter((d) => d.date !== selectedDate);
+  const rolloverTargets = weekDayDates(0, wsd).filter((d) => d.date !== selectedDate);
   const recurringStats = weekData?.recurring_stats ?? {};
 
   return (
@@ -203,7 +206,7 @@ export default function TasksTab() {
           ‹
         </button>
         <span className="tasks-week-label">
-          {isCurrentWeek ? "This week" : weekRangeLabel(weekOffset)}
+          {isCurrentWeek ? "This week" : weekRangeLabel(weekOffset, wsd)}
         </span>
         <button
           className="ghost daily-task-btn"
