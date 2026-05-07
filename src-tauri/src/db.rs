@@ -66,6 +66,14 @@ pub const BASE_SCHEMA_SQL: &str = r#"
           FOREIGN KEY(template_id) REFERENCES schedule_template(id) ON DELETE CASCADE
         );
 
+        CREATE TABLE IF NOT EXISTS schedule_day_target (
+          template_id INTEGER NOT NULL,
+          day_of_week INTEGER NOT NULL,
+          target_min INTEGER NOT NULL DEFAULT 0,
+          PRIMARY KEY(template_id, day_of_week),
+          FOREIGN KEY(template_id) REFERENCES schedule_template(id) ON DELETE CASCADE
+        );
+
         CREATE TABLE IF NOT EXISTS block_checklist_item (
           id INTEGER PRIMARY KEY AUTOINCREMENT,
           block_id INTEGER NOT NULL,
@@ -111,6 +119,15 @@ pub const BASE_SCHEMA_SQL: &str = r#"
           created_at INTEGER NOT NULL,
           position INTEGER NOT NULL,
           recurring_task_id INTEGER REFERENCES recurring_task(id)
+        );
+
+        CREATE TABLE IF NOT EXISTS subtask (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          task_id INTEGER NOT NULL,
+          text TEXT NOT NULL,
+          done INTEGER NOT NULL DEFAULT 0,
+          position INTEGER NOT NULL,
+          FOREIGN KEY(task_id) REFERENCES daily_task(id) ON DELETE CASCADE
         );
 
         CREATE TABLE IF NOT EXISTS recurring_task (
@@ -293,6 +310,33 @@ pub async fn init_db(pool: &SqlitePool) -> Result<(), String> {
             .map_err(|e| e.to_string())?;
     }
 
+    sqlx::query(
+        "CREATE TABLE IF NOT EXISTS schedule_day_target (
+          template_id INTEGER NOT NULL,
+          day_of_week INTEGER NOT NULL,
+          target_min INTEGER NOT NULL DEFAULT 0,
+          PRIMARY KEY(template_id, day_of_week),
+          FOREIGN KEY(template_id) REFERENCES schedule_template(id) ON DELETE CASCADE
+        )",
+    )
+    .execute(pool)
+    .await
+    .map_err(|e| e.to_string())?;
+
+    sqlx::query(
+        "CREATE TABLE IF NOT EXISTS subtask (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          task_id INTEGER NOT NULL,
+          text TEXT NOT NULL,
+          done INTEGER NOT NULL DEFAULT 0,
+          position INTEGER NOT NULL,
+          FOREIGN KEY(task_id) REFERENCES daily_task(id) ON DELETE CASCADE
+        )",
+    )
+    .execute(pool)
+    .await
+    .map_err(|e| e.to_string())?;
+
     let count: i64 = sqlx::query("SELECT COUNT(*) FROM schedule")
         .fetch_one(pool)
         .await
@@ -377,11 +421,13 @@ mod tests {
         assert!(tables.contains(&"schedule".to_string()));
         assert!(tables.contains(&"schedule_template".to_string()));
         assert!(tables.contains(&"schedule_block".to_string()));
+        assert!(tables.contains(&"schedule_day_target".to_string()));
         assert!(tables.contains(&"block_checklist_item".to_string()));
         assert!(tables.contains(&"app_meta".to_string()));
         assert!(tables.contains(&"settings".to_string()));
         assert!(tables.contains(&"session_checklist_state".to_string()));
         assert!(tables.contains(&"recurring_task".to_string()));
+        assert!(tables.contains(&"subtask".to_string()));
     }
 
     #[tokio::test]

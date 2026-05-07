@@ -56,8 +56,8 @@ describe("TasksTab", () => {
   it("renders tasks returned by the API", async () => {
     const weekData = makeWeekResponse({
       [isoToday]: [
-        { id: 1, date: isoToday, text: "Write tests", done: false, done_at: null, created_at: 1000, position: 0, recurring_task_id: null },
-        { id: 2, date: isoToday, text: "Review PR", done: true, done_at: 2000, created_at: 1001, position: 1, recurring_task_id: null },
+        { id: 1, date: isoToday, text: "Write tests", done: false, done_at: null, created_at: 1000, position: 0, recurring_task_id: null, subtasks: [] },
+        { id: 2, date: isoToday, text: "Review PR", done: true, done_at: 2000, created_at: 1001, position: 1, recurring_task_id: null, subtasks: [] },
       ],
     });
     mockInvoke.mockImplementation((cmd: string) => {
@@ -90,7 +90,7 @@ describe("TasksTab", () => {
   it("calls invoke to toggle a task when checkbox clicked", async () => {
     const weekData = makeWeekResponse({
       [isoToday]: [
-        { id: 1, date: isoToday, text: "Toggle me", done: false, done_at: null, created_at: 1000, position: 0, recurring_task_id: null },
+        { id: 1, date: isoToday, text: "Toggle me", done: false, done_at: null, created_at: 1000, position: 0, recurring_task_id: null, subtasks: [] },
       ],
     });
     mockInvoke.mockImplementation((cmd: string) => {
@@ -116,7 +116,7 @@ describe("TasksTab", () => {
   it("shows delete button and deletes", async () => {
     const weekData = makeWeekResponse({
       [isoToday]: [
-        { id: 5, date: isoToday, text: "Delete me", done: false, done_at: null, created_at: 1000, position: 0, recurring_task_id: null },
+        { id: 5, date: isoToday, text: "Delete me", done: false, done_at: null, created_at: 1000, position: 0, recurring_task_id: null, subtasks: [] },
       ],
     });
     mockInvoke.mockImplementation((cmd: string) => {
@@ -142,7 +142,7 @@ describe("TasksTab", () => {
   it("shows rollover button for incomplete tasks", async () => {
     const weekData = makeWeekResponse({
       [isoToday]: [
-        { id: 3, date: isoToday, text: "Rollover task", done: false, done_at: null, created_at: 1000, position: 0, recurring_task_id: null },
+        { id: 3, date: isoToday, text: "Rollover task", done: false, done_at: null, created_at: 1000, position: 0, recurring_task_id: null, subtasks: [] },
       ],
     });
     mockInvoke.mockImplementation((cmd: string) => {
@@ -163,7 +163,7 @@ describe("TasksTab", () => {
   it("does not show rollover button for completed tasks", async () => {
     const weekData = makeWeekResponse({
       [isoToday]: [
-        { id: 3, date: isoToday, text: "Done task", done: true, done_at: 2000, created_at: 1000, position: 0, recurring_task_id: null },
+        { id: 3, date: isoToday, text: "Done task", done: true, done_at: 2000, created_at: 1000, position: 0, recurring_task_id: null, subtasks: [] },
       ],
     });
     mockInvoke.mockImplementation((cmd: string) => {
@@ -201,7 +201,7 @@ describe("TasksTab", () => {
     const weekData: WeekTasksResponse = {
       days: {
         [isoToday]: [
-          { id: 1, date: isoToday, text: "Standup", done: false, done_at: null, created_at: 1000, position: 0, recurring_task_id: 10 },
+          { id: 1, date: isoToday, text: "Standup", done: false, done_at: null, created_at: 1000, position: 0, recurring_task_id: 10, subtasks: [] },
         ],
       },
       recurring_stats: { 10: { total: 3, done: 2 } },

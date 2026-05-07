@@ -16,6 +16,7 @@ beforeEach(() => {
       { id: 5, template_id: 1, day_of_week: 5, start_min: 540, end_min: 1020, label: "Work", color: "#34D399" },
     ],
     checklistItems: [],
+    dayTargets: [],
     saving: false,
     error: null,
   });
@@ -30,6 +31,8 @@ beforeEach(() => {
       week_done: false,
       day_done: false,
       overnight_session: false,
+      target_today_ms: 0,
+      off_schedule: false,
     },
   });
 });

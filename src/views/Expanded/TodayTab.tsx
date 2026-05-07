@@ -8,6 +8,7 @@ import {
   formatHoursMinutes,
   formatMinuteAsTime,
   formatShortTime,
+  isCurrentlyInSchedule,
   pct,
   stateMessage,
   todayDateString,
@@ -17,13 +18,17 @@ import {
 import { useSettingsStore } from "../../store/settings";
 import {
   apiAddDailyTask,
+  apiAddSubtask,
   apiDeleteDailyTask,
+  apiDeleteSubtask,
   apiGetDailyTasks,
+  apiGetInsights,
   apiMarkDayDone,
   apiRolloverDailyTask,
   apiToggleDailyTask,
+  apiToggleSubtask,
 } from "../../lib/tauri";
-import type { DailyTask } from "../../types";
+import type { DailyTask, Insight } from "../../types";
 import { useScheduleStore } from "../../store/schedule";
 import { useTimerStore } from "../../store/timer";
 
@@ -36,8 +41,13 @@ export default function TodayTab() {
 
   const isoToday = todayISODate();
   const [tasks, setTasks] = useState<DailyTask[]>([]);
+  const [insights, setInsights] = useState<Insight[]>([]);
+  const [dismissedInsights, setDismissedInsights] = useState<Set<string>>(new Set());
   const [newTaskText, setNewTaskText] = useState("");
   const [rolloverTaskId, setRolloverTaskId] = useState<number | null>(null);
+  const [expandedTaskId, setExpandedTaskId] = useState<number | null>(null);
+  const [newSubtaskText, setNewSubtaskText] = useState("");
+  const [offSchedulePrompt, setOffSchedulePrompt] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
 
   const loadTasks = useCallback(async () => {
@@ -49,6 +59,14 @@ export default function TodayTab() {
 
   useEffect(() => { void loadTasks(); }, [loadTasks]);
 
+  useEffect(() => {
+    apiGetInsights(wsd).then((r) => setInsights(r ?? [])).catch(() => {});
+  }, [wsd]);
+
+  useEffect(() => {
+    if (status?.active_session) setOffSchedulePrompt(false);
+  }, [status?.active_session]);
+
   if (!status) return <p className="muted">Loading today...</p>;
 
   const todayDow = new Date().getDay();
@@ -56,6 +74,7 @@ export default function TodayTab() {
     .filter((b) => b.day_of_week === todayDow)
     .sort((a, b) => a.start_min - b.start_min);
   const plannedMs = todayBlocks.reduce((s, b) => s + blockDurationMs(b.start_min, b.end_min), 0);
+  const targetMs = status.target_today_ms > 0 ? status.target_today_ms : plannedMs;
   const scheduleStart = todayBlocks.length > 0 ? todayBlocks[0].start_min : null;
   const scheduleEnd = todayBlocks.length > 0 ? todayBlocks[todayBlocks.length - 1].end_min : null;
 
@@ -63,10 +82,22 @@ export default function TodayTab() {
     ? nowMs - status.active_session.started_at
     : 0;
   const workedMs = useTimerStore.getState().liveWorkedMs();
-  const remainingMs = Math.max(0, plannedMs - workedMs);
-  const progress = pct(workedMs, plannedMs);
-  const progressFrac = plannedMs > 0 ? Math.min(1, workedMs / plannedMs) : 0;
-  const isOvertime = workedMs > plannedMs && plannedMs > 0;
+  const remainingMs = Math.max(0, targetMs - workedMs);
+  const progress = pct(workedMs, targetMs);
+  const progressFrac = targetMs > 0 ? Math.min(1, workedMs / targetMs) : 0;
+  const isOvertime = workedMs > targetMs && targetMs > 0;
+
+  let scheduleStatText: string;
+  if (scheduleStart !== null && scheduleEnd !== null) {
+    scheduleStatText = `${formatMinuteAsTime(scheduleStart, tf)} - ${formatMinuteAsTime(scheduleEnd, tf)} (${formatHoursMinutes(plannedMs)})`;
+    if (status.target_today_ms > 0 && status.target_today_ms !== plannedMs) {
+      scheduleStatText += ` · Target: ${formatHoursMinutes(status.target_today_ms)}`;
+    }
+  } else if (plannedMs === 0 && status.target_today_ms > 0) {
+    scheduleStatText = `Flex day · Target: ${formatHoursMinutes(status.target_today_ms)}`;
+  } else {
+    scheduleStatText = "No shift today";
+  }
 
   async function handleAddTask() {
     const text = newTaskText.trim();
@@ -97,6 +128,30 @@ export default function TodayTab() {
     try {
       await apiRolloverDailyTask(id, targetDate);
       setRolloverTaskId(null);
+      await loadTasks();
+    } catch { /* ignore */ }
+  }
+
+  async function handleAddSubtask(taskId: number) {
+    const text = newSubtaskText.trim();
+    if (!text) return;
+    try {
+      await apiAddSubtask(taskId, text);
+      setNewSubtaskText("");
+      await loadTasks();
+    } catch { /* ignore */ }
+  }
+
+  async function handleToggleSubtask(id: number, done: boolean) {
+    try {
+      await apiToggleSubtask(id, done);
+      await loadTasks();
+    } catch { /* ignore */ }
+  }
+
+  async function handleDeleteSubtask(id: number) {
+    try {
+      await apiDeleteSubtask(id);
       await loadTasks();
     } catch { /* ignore */ }
   }
@@ -148,14 +203,14 @@ export default function TodayTab() {
             </div>
           ) : null}
 
-          {plannedMs > 0 ? (
+          {targetMs > 0 ? (
             <div className="today-stat">
               <span className="today-stat-label">
                 {isOvertime ? "Overtime" : "Remaining"}
               </span>
               <span className="today-stat-value">
                 {isOvertime
-                  ? `+${formatHoursMinutes(workedMs - plannedMs)}`
+                  ? `+${formatHoursMinutes(workedMs - targetMs)}`
                   : formatHoursMinutes(remainingMs)}
               </span>
             </div>
@@ -164,15 +219,13 @@ export default function TodayTab() {
           <div className="today-stat">
             <span className="today-stat-label">Today's schedule</span>
             <span className="today-stat-value" style={{ fontSize: "0.95rem" }}>
-              {scheduleStart !== null && scheduleEnd !== null
-                ? `${formatMinuteAsTime(scheduleStart, tf)} - ${formatMinuteAsTime(scheduleEnd, tf)} (${formatHoursMinutes(plannedMs)})`
-                : "No shift today"}
+              {scheduleStatText}
             </span>
           </div>
         </div>
       </div>
 
-      {plannedMs > 0 ? (
+      {targetMs > 0 ? (
         <div className="today-progress-bar-wrap">
           <div className="today-progress-track">
             <div
@@ -182,7 +235,7 @@ export default function TodayTab() {
           </div>
           <div className="row between" style={{ fontSize: "0.78rem" }}>
             <span className="muted">{formatHoursMinutes(workedMs)} worked</span>
-            <span className="muted">{formatHoursMinutes(plannedMs)} target</span>
+            <span className="muted">{formatHoursMinutes(targetMs)} target</span>
           </div>
         </div>
       ) : null}
@@ -212,54 +265,115 @@ export default function TodayTab() {
         </form>
         {tasks.length > 0 ? (
           <ul className="daily-tasks-list">
-            {tasks.map((task) => (
-              <li key={task.id} className={`daily-task-item ${task.done ? "daily-task-done" : ""}`}>
-                <label className="daily-task-label">
-                  <input
-                    type="checkbox"
-                    checked={task.done}
-                    onChange={() => void handleToggle(task.id, !task.done)}
-                  />
-                  <span className={task.done ? "daily-task-text-done" : ""}>
-                    {task.recurring_task_id != null && <span className="recurring-badge" title="Recurring task">↻</span>}
-                    {task.text}
-                  </span>
-                </label>
-                <div className="daily-task-actions">
-                  {!task.done && (
-                    <div style={{ position: "relative" }}>
+            {tasks.map((task) => {
+              const isExpanded = expandedTaskId === task.id;
+              const subDone = task.subtasks.filter((s) => s.done).length;
+              const subTotal = task.subtasks.length;
+              return (
+                <li key={task.id} className={`daily-task-item ${task.done ? "daily-task-done" : ""}`}>
+                  <div className="daily-task-row">
+                    <label className="daily-task-label">
+                      <input
+                        type="checkbox"
+                        checked={task.done}
+                        onChange={() => void handleToggle(task.id, !task.done)}
+                      />
+                      <span className={task.done ? "daily-task-text-done" : ""}>
+                        {task.recurring_task_id != null && <span className="recurring-badge" title="Recurring task">↻</span>}
+                        {task.text}
+                      </span>
+                      {subTotal > 0 && (
+                        <span className="subtask-count" title={`${subDone}/${subTotal} subtasks done`}>
+                          {subDone}/{subTotal}
+                        </span>
+                      )}
+                    </label>
+                    <div className="daily-task-actions">
                       <button
-                        className="ghost daily-task-btn"
-                        title="Move to another day"
-                        onClick={() => setRolloverTaskId(rolloverTaskId === task.id ? null : task.id)}
+                        className={`ghost daily-task-btn ${isExpanded ? "daily-task-btn-active" : ""}`}
+                        title="Subtasks"
+                        onClick={() => {
+                          setExpandedTaskId(isExpanded ? null : task.id);
+                          setNewSubtaskText("");
+                        }}
                       >
-                        &#x21B7;
+                        ⋯
                       </button>
-                      {rolloverTaskId === task.id && (
-                        <div className="daily-task-rollover-menu">
-                          {weekDays.map((d) => (
-                            <button
-                              key={d.date}
-                              className="daily-task-rollover-option"
-                              onClick={() => void handleRollover(task.id, d.date)}
-                            >
-                              {d.label}
-                            </button>
-                          ))}
+                      {!task.done && (
+                        <div style={{ position: "relative" }}>
+                          <button
+                            className="ghost daily-task-btn"
+                            title="Move to another day"
+                            onClick={() => setRolloverTaskId(rolloverTaskId === task.id ? null : task.id)}
+                          >
+                            &#x21B7;
+                          </button>
+                          {rolloverTaskId === task.id && (
+                            <div className="daily-task-rollover-menu">
+                              {weekDays.map((d) => (
+                                <button
+                                  key={d.date}
+                                  className="daily-task-rollover-option"
+                                  onClick={() => void handleRollover(task.id, d.date)}
+                                >
+                                  {d.label}
+                                </button>
+                              ))}
+                            </div>
+                          )}
                         </div>
                       )}
+                      <button
+                        className="ghost daily-task-btn"
+                        title="Delete task"
+                        onClick={() => void handleDelete(task.id)}
+                      >
+                        &times;
+                      </button>
+                    </div>
+                  </div>
+                  {isExpanded && (
+                    <div className="subtask-panel">
+                      {task.subtasks.map((sub) => (
+                        <div key={sub.id} className={`subtask-item ${sub.done ? "subtask-done" : ""}`}>
+                          <label className="subtask-label">
+                            <input
+                              type="checkbox"
+                              checked={sub.done}
+                              onChange={() => void handleToggleSubtask(sub.id, !sub.done)}
+                            />
+                            <span className={sub.done ? "daily-task-text-done" : ""}>{sub.text}</span>
+                          </label>
+                          <button
+                            className="ghost subtask-delete"
+                            title="Remove subtask"
+                            onClick={() => void handleDeleteSubtask(sub.id)}
+                          >
+                            &times;
+                          </button>
+                        </div>
+                      ))}
+                      <form
+                        className="subtask-add"
+                        onSubmit={(e) => { e.preventDefault(); void handleAddSubtask(task.id); }}
+                      >
+                        <input
+                          type="text"
+                          placeholder="Add subtask..."
+                          value={newSubtaskText}
+                          onChange={(e) => setNewSubtaskText(e.currentTarget.value)}
+                          className="subtask-input"
+                          autoFocus
+                        />
+                        <button type="submit" className="chip chip-active chip-sm" disabled={!newSubtaskText.trim()}>
+                          Add
+                        </button>
+                      </form>
                     </div>
                   )}
-                  <button
-                    className="ghost daily-task-btn"
-                    title="Delete task"
-                    onClick={() => void handleDelete(task.id)}
-                  >
-                    &times;
-                  </button>
-                </div>
-              </li>
-            ))}
+                </li>
+              );
+            })}
           </ul>
         ) : (
           <p className="muted" style={{ fontSize: "0.85rem", margin: "8px 0 0" }}>
@@ -267,6 +381,55 @@ export default function TodayTab() {
           </p>
         )}
       </div>
+
+      {insights.length > 0 && (
+        <div className="insights-section">
+          <h3>Insights</h3>
+          {insights
+            .filter((i) => !dismissedInsights.has(i.kind))
+            .map((insight) => (
+              <div
+                key={insight.kind}
+                className={`insight-card insight-${insight.severity}`}
+              >
+                <span className="insight-icon">
+                  {insight.severity === "positive" ? "✓" : insight.severity === "warning" ? "!" : "i"}
+                </span>
+                <span className="insight-message">{insight.message}</span>
+                <button
+                  type="button"
+                  className="insight-dismiss"
+                  onClick={() =>
+                    setDismissedInsights((prev) => new Set([...prev, insight.kind]))
+                  }
+                >
+                  ×
+                </button>
+              </div>
+            ))}
+        </div>
+      )}
+
+      {offSchedulePrompt && !status.active_session ? (
+        <div className="off-schedule-confirm" role="dialog" aria-live="polite">
+          <span>You&apos;re clocking in outside your schedule. Continue?</span>
+          <div className="button-group">
+            <button
+              type="button"
+              className="chip chip-active"
+              onClick={() => {
+                void clockIn();
+                setOffSchedulePrompt(false);
+              }}
+            >
+              Yes, clock in
+            </button>
+            <button type="button" className="chip" onClick={() => setOffSchedulePrompt(false)}>
+              Cancel
+            </button>
+          </div>
+        </div>
+      ) : null}
 
       <div className="today-actions">
         {status.active_session ? (
@@ -279,9 +442,19 @@ export default function TodayTab() {
         ) : null}
         <ClockButton
           active={Boolean(status.active_session)}
-          onClick={() => (status.active_session ? void clockOut() : void clockIn())}
+          onClick={() => {
+            if (status.active_session) {
+              void clockOut();
+              return;
+            }
+            if (isCurrentlyInSchedule(blocks)) {
+              void clockIn();
+              return;
+            }
+            setOffSchedulePrompt(true);
+          }}
         />
-        {!status.active_session && plannedMs > 0 && (
+        {!status.active_session && targetMs > 0 && (
           <button
             className={`done-toggle ${status.day_done ? "done-toggle-active" : ""}`}
             onClick={async () => {

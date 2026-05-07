@@ -13,6 +13,7 @@ describe("StatusChip", () => {
     { state: "after_shift", label: "After shift" },
     { state: "week_done", label: "Week done" },
     { state: "day_done", label: "Done for today" },
+    { state: "behind_target", label: "Behind target" },
   ];
 
   for (const { state, label } of states) {

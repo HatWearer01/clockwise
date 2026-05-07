@@ -2,14 +2,14 @@
 
 A personal time-tracking desktop app for managing your own work hours. Clock in and out, track breaks, and see exactly how much you've worked — all local, all private, just for you.
 
-Built for anyone who wants more structure in their workday. Set your own weekly schedule, get gentle nudges when you drift, and review your patterns over time.
+Built for anyone who wants more structure in their workday — especially remote workers who need help establishing boundaries. Set flexible daily hour targets, get nudged when you drift from your schedule, see pattern insights (late nights, weekend creep, cramming), and review your week with an automatic summary.
 
 Built with Tauri 2, React 19, and TypeScript. Windows native.
 
 ## Features
 
 - **Clock in/out and break tracking** — one-click clock in, take breaks, see worked vs break time separately
-- **Weekly schedule** — set your planned hours per day, including overnight shifts (e.g. 11 PM to 7 AM); overnight sessions are attributed to the day they started and clearly labeled in the UI
+- **Weekly schedule** — set your planned hours per day with optional per-day hour targets, including overnight shifts (e.g. 11 PM to 7 AM); supports fixed, flex (target-only), and hybrid (preferred window + target) modes; overnight sessions are attributed to the day they started and clearly labeled in the UI
 - **"Done for the day / week" toggles** — mark your day or week as complete early; the entire app reflects this (no more "in shift" reminders or clock-in nudges)
 - **Smart notifications** — configurable reminder interval (1–30 min), repeating clock-in/out nudges via Windows toast + in-app banner, with configurable quiet hours (custom start/end times) and customizable idle nudge thresholds (break reminder after N min, inactivity alert after N min)
 - **Close to tray** — X button hides to system tray; left-click tray icon toggles visibility, right-click for menu
@@ -18,6 +18,10 @@ Built with Tauri 2, React 19, and TypeScript. Windows native.
 - **Task history navigation** — browse tasks from any past or future week with prev/next navigation; past weeks are read-only for historical reference
 - **Compact and expanded modes** — compact floating widget with live date/time and key stats, or full dashboard with Today, Tasks, Schedule, Week, and Settings tabs
 - **Weekly stats and history** — progress bars, hours logged vs planned, 8-week history chart with clickable bars; navigate to any past week's full day-by-day breakdown with tasks
+- **Daily hour targets** — set explicit target hours per day alongside or instead of fixed time blocks; supports three modes: fixed (target derived from blocks), flex (target only, no time window), and hybrid (preferred window + explicit target); "behind target" status and post-window nudges when you haven't hit your hours
+- **Off-schedule boundary warnings** — clocking in outside scheduled hours triggers a confirmation prompt; a persistent amber banner shows while working off-schedule; keeps you aware without blocking
+- **Pattern insights** — automatic detection of work patterns: start-time drift, weekend creep, late-night sessions, cramming (one day > 50% of weekly hours), missed scheduled days, and on-schedule streaks; shown as dismissable insight cards on the Today tab
+- **Weekly review** — auto-shows a summary modal on the first app open of each new week; grades the previous week with days worked, target completion %, on-time starts, off-schedule sessions, average start/end times, and pattern insights; also accessible manually via "Review" button on the Week tab
 - **Crash recovery** — heartbeat file (every 30s) detects unclean shutdowns; on next launch, proposes an end time for the orphaned session, closes any dangling breaks, and caps recovery to prevent future timestamps
 - **Settings** — always-on-top toggle, window opacity slider, week start day (Monday/Sunday), 12h/24h time format, autostart, notification and idle nudge controls with sub-options
 - **Lock/sleep detection** — detects Windows session lock/unlock and sleep/wake events; pauses tracking context so idle time isn't counted
@@ -64,7 +68,7 @@ npm run test:coverage
 cd src-tauri && cargo test
 ```
 
-### Test Architecture — 275 tests across 3 layers
+### Test Architecture — 282 tests across 3 layers
 
 Every feature is covered by **three test layers**: Rust backend unit tests, frontend component/store tests, and full-stack E2E smoke tests. All three must pass before shipping.
 
@@ -77,11 +81,11 @@ Located inline in each module as `#[cfg(test)] mod tests { ... }`. These test th
 | Module | What's tested |
 |--------|---------------|
 | `db.rs` | Schema creation, idempotent init, default schedule seeding, template bootstrapping |
-| `commands/session.rs` | Clock in/out, break start/resume, pause subtraction from worked time, active session detection, pending recovery clamping, recovery pause closure, recovery future-time cap, checklist toggle, day/week done, overnight session detection |
+| `commands/session.rs` | Clock in/out, break start/resume, pause subtraction, active session detection, pending recovery, checklist toggle, day/week done, overnight session, daily hour targets, behind-target status, off-schedule detection, pattern insights (6 heuristics), weekly review summary |
 | `commands/tasks.rs` | Daily task CRUD, toggle done/undone, rollover, sort ordering, delete; recurring task recurrence patterns (daily, weekdays, specific days, weekly, every N days), auto-instantiation, end-date boundaries, week query aggregation, recurring stats |
-| `commands/schedule.rs` | Block CRUD, validation (day range, time range), template activation, legacy schedule sync, cascade deletes |
+| `commands/schedule.rs` | Block CRUD, validation (day range, time range), template activation, legacy schedule sync, cascade deletes, day target persistence |
 | `commands/settings.rs` | Setting defaults, round-trip persistence, opacity clamping, boolean parsing, new keys (always_on_top, week_start_day, time_format, idle nudge thresholds), clamping validation |
-| `notifications.rs` | Interval-based reminder dedup, quiet hours (normal and wrap-around), overtime nudge, idle nudge, DB-backed threshold validation, day/week-done suppression |
+| `notifications.rs` | Interval-based reminder dedup, quiet hours (normal and wrap-around), overtime nudge, idle nudge, DB-backed threshold validation, day/week-done suppression, behind-target nudges |
 | `startup.rs` | Stale session reconciliation, pending recovery creation, startup notice lifecycle, heartbeat file handling |
 | `tray.rs` | System tray setup, left-click toggle, right-click menu (show/clock in/clock out/quit) |
 | `lock_detect.rs` | Windows session lock/unlock and sleep/wake detection via message-only window |
@@ -90,7 +94,7 @@ Located inline in each module as `#[cfg(test)] mod tests { ... }`. These test th
 
 ---
 
-#### Layer 2 · Frontend Tests (178 tests)
+#### Layer 2 · Frontend Tests (185 tests)
 
 Powered by **Vitest** + **React Testing Library** + **jsdom**. The Tauri IPC layer (`@tauri-apps/api`) is mocked globally in `src/test-setup.ts`, allowing all frontend logic to be tested without a running Tauri backend.
 
@@ -103,7 +107,7 @@ Powered by **Vitest** + **React Testing Library** + **jsdom**. The Tauri IPC lay
 | `src/components/*.test.tsx` | ClockButton, ProgressRing, StatusChip — all visual states and props |
 | `src/views/Compact.test.tsx` | Loading state, status display, button visibility per session state |
 | `src/views/Expanded/*.test.tsx` | TodayTab, TasksTab, ScheduleTab, WeekTab, SettingsTab — rendering, interactions, API calls |
-| `src/App.test.tsx` | Full app lifecycle: banners (notice, recovery, resume, action prompt, error), event listeners, mode switching |
+| `src/App.test.tsx` | Full app lifecycle: banners (notice, recovery, resume, action prompt, off-schedule, error), event listeners, weekly review auto-show, mode switching |
 
 ---
 
@@ -177,7 +181,7 @@ npm run smoke
 
 - **Three layers, one goal:** Backend unit tests catch logic bugs, frontend tests catch UI/state bugs, E2E tests catch integration bugs across the full stack. Every new feature should be covered by at least two of these layers.
 - **Isolation:** Each test creates its own in-memory database (Rust) or resets store state (frontend). Tests never depend on execution order.
-- **Speed:** The unit/component suite (253 tests) runs in under 10 seconds. E2E tests take longer (build + launch + drive) but cover the real binary.
+- **Speed:** The unit/component suite (260 tests) runs in under 10 seconds. E2E tests take longer (build + launch + drive) but cover the real binary.
 - **No network/OS dependencies:** All external APIs (Tauri IPC, notifications, window management, filesystem heartbeat) are mocked or use temp files in unit tests. E2E tests run the actual app against a fresh SQLite database.
 - **Static analysis:** ESLint with `eslint-plugin-react-hooks` catches hooks-order violations (conditional hooks, hooks after early returns) at lint time, before they become runtime crashes.
 - **Feature-aligned:** Tests are organized by feature, not by test type. This makes it easy to find and extend coverage when modifying a specific feature.
@@ -187,7 +191,7 @@ npm run smoke
 ```
 clockwise/
 ├── src/                    # React frontend
-│   ├── components/         # Reusable UI components (ClockButton, Logo, ProgressRing, StatusChip, Titlebar)
+│   ├── components/         # Reusable UI components (ClockButton, Logo, ProgressRing, StatusChip, Titlebar, WeeklyReview)
 │   ├── views/              # Page-level views (Compact, Expanded tabs)
 │   ├── store/              # Zustand state stores (timer, schedule, settings)
 │   ├── lib/                # Utilities (time formatting, Tauri IPC wrappers)

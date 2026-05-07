@@ -10,6 +10,15 @@ use crate::state::AppState;
 use super::session::ApiError;
 
 #[derive(Debug, Serialize)]
+pub struct Subtask {
+    pub id: i64,
+    pub task_id: i64,
+    pub text: String,
+    pub done: bool,
+    pub position: i64,
+}
+
+#[derive(Debug, Serialize)]
 pub struct DailyTask {
     pub id: i64,
     pub date: String,
@@ -19,6 +28,7 @@ pub struct DailyTask {
     pub created_at: i64,
     pub position: i64,
     pub recurring_task_id: Option<i64>,
+    pub subtasks: Vec<Subtask>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -178,7 +188,42 @@ fn row_to_daily_task(row: &sqlx::sqlite::SqliteRow) -> Result<DailyTask, ApiErro
         created_at: row.try_get(5).map_err(|e| ApiError::from(e.to_string()))?,
         position: row.try_get(6).map_err(|e| ApiError::from(e.to_string()))?,
         recurring_task_id: row.try_get(7).map_err(|e| ApiError::from(e.to_string()))?,
+        subtasks: Vec::new(),
     })
+}
+
+async fn attach_subtasks(pool: &SqlitePool, tasks: &mut [DailyTask]) -> Result<(), ApiError> {
+    if tasks.is_empty() {
+        return Ok(());
+    }
+    let ids: Vec<i64> = tasks.iter().map(|t| t.id).collect();
+    let placeholders = ids.iter().map(|_| "?").collect::<Vec<_>>().join(",");
+    let query = format!(
+        "SELECT id, task_id, text, done, position FROM subtask WHERE task_id IN ({}) ORDER BY position ASC",
+        placeholders
+    );
+    let mut q = sqlx::query(&query);
+    for id in &ids {
+        q = q.bind(id);
+    }
+    let rows = q.fetch_all(pool).await.map_err(|e| ApiError::from(e.to_string()))?;
+    let mut map: HashMap<i64, Vec<Subtask>> = HashMap::new();
+    for row in rows {
+        let task_id: i64 = row.try_get(1).map_err(|e| ApiError::from(e.to_string()))?;
+        map.entry(task_id).or_default().push(Subtask {
+            id: row.try_get(0).map_err(|e| ApiError::from(e.to_string()))?,
+            task_id,
+            text: row.try_get(2).map_err(|e| ApiError::from(e.to_string()))?,
+            done: row.try_get::<i64, _>(3).map_err(|e| ApiError::from(e.to_string()))? != 0,
+            position: row.try_get(4).map_err(|e| ApiError::from(e.to_string()))?,
+        });
+    }
+    for task in tasks.iter_mut() {
+        if let Some(subs) = map.remove(&task.id) {
+            task.subtasks = subs;
+        }
+    }
+    Ok(())
 }
 
 #[tauri::command]
@@ -199,7 +244,9 @@ pub async fn get_daily_tasks(
     .await
     .map_err(|e| ApiError::from(e.to_string()))?;
 
-    rows.iter().map(row_to_daily_task).collect()
+    let mut tasks: Vec<DailyTask> = rows.iter().map(row_to_daily_task).collect::<Result<_, _>>()?;
+    attach_subtasks(&state.pool, &mut tasks).await?;
+    Ok(tasks)
 }
 
 #[tauri::command]
@@ -244,6 +291,7 @@ pub async fn add_daily_task(
         created_at: now,
         position,
         recurring_task_id: None,
+        subtasks: Vec::new(),
     })
 }
 
@@ -289,6 +337,11 @@ pub async fn delete_daily_task(
     state: tauri::State<'_, AppState>,
     id: i64,
 ) -> Result<(), ApiError> {
+    sqlx::query("DELETE FROM subtask WHERE task_id = ?")
+        .bind(id)
+        .execute(&state.pool)
+        .await
+        .map_err(|e| ApiError::from(e.to_string()))?;
     sqlx::query("DELETE FROM daily_task WHERE id = ?")
         .bind(id)
         .execute(&state.pool)
@@ -327,6 +380,74 @@ pub async fn rollover_daily_task(
     sqlx::query("UPDATE daily_task SET date = ?, position = ? WHERE id = ?")
         .bind(&target_date)
         .bind(max_pos + 1)
+        .bind(id)
+        .execute(&state.pool)
+        .await
+        .map_err(|e| ApiError::from(e.to_string()))?;
+    Ok(())
+}
+
+// ── Subtask CRUD ────────────────────────────────────────────────────
+
+#[tauri::command]
+pub async fn add_subtask(
+    state: tauri::State<'_, AppState>,
+    task_id: i64,
+    text: String,
+) -> Result<Subtask, ApiError> {
+    let trimmed = text.trim().to_string();
+    if trimmed.is_empty() {
+        return Err(ApiError::from("Subtask text cannot be empty."));
+    }
+    let max_pos: i64 = sqlx::query_scalar(
+        "SELECT COALESCE(MAX(position), -1) FROM subtask WHERE task_id = ?",
+    )
+    .bind(task_id)
+    .fetch_one(&state.pool)
+    .await
+    .map_err(|e| ApiError::from(e.to_string()))?;
+
+    let result = sqlx::query(
+        "INSERT INTO subtask (task_id, text, done, position) VALUES (?, ?, 0, ?)",
+    )
+    .bind(task_id)
+    .bind(&trimmed)
+    .bind(max_pos + 1)
+    .execute(&state.pool)
+    .await
+    .map_err(|e| ApiError::from(e.to_string()))?;
+
+    Ok(Subtask {
+        id: result.last_insert_rowid(),
+        task_id,
+        text: trimmed,
+        done: false,
+        position: max_pos + 1,
+    })
+}
+
+#[tauri::command]
+pub async fn toggle_subtask(
+    state: tauri::State<'_, AppState>,
+    id: i64,
+    done: bool,
+) -> Result<(), ApiError> {
+    let done_val: i64 = if done { 1 } else { 0 };
+    sqlx::query("UPDATE subtask SET done = ? WHERE id = ?")
+        .bind(done_val)
+        .bind(id)
+        .execute(&state.pool)
+        .await
+        .map_err(|e| ApiError::from(e.to_string()))?;
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn delete_subtask(
+    state: tauri::State<'_, AppState>,
+    id: i64,
+) -> Result<(), ApiError> {
+    sqlx::query("DELETE FROM subtask WHERE id = ?")
         .bind(id)
         .execute(&state.pool)
         .await
@@ -497,7 +618,8 @@ pub async fn get_tasks_for_week(
         .await
         .map_err(|e| ApiError::from(e.to_string()))?;
 
-        let tasks: Vec<DailyTask> = rows.iter().map(row_to_daily_task).collect::<Result<_, _>>()?;
+        let mut tasks: Vec<DailyTask> = rows.iter().map(row_to_daily_task).collect::<Result<_, _>>()?;
+        attach_subtasks(&state.pool, &mut tasks).await?;
         days.insert(date_str, tasks);
     }
 

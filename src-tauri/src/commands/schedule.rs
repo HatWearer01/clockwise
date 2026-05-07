@@ -31,12 +31,19 @@ pub struct BlockChecklistItem {
     pub position: i64,
 }
 
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct DayTarget {
+    pub day_of_week: i64,
+    pub target_min: i64, // 0 means "derive from blocks"
+}
+
 #[derive(Debug, Serialize)]
 pub struct SchedulePayload {
     pub templates: Vec<ScheduleTemplate>,
     pub active_template_id: i64,
     pub blocks: Vec<ScheduleBlock>,
     pub checklist_items: Vec<BlockChecklistItem>,
+    pub day_targets: Vec<DayTarget>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -118,11 +125,29 @@ pub async fn get_schedule(state: tauri::State<'_, AppState>) -> Result<ScheduleP
         })
         .collect::<Result<Vec<_>, ApiError>>()?;
 
+    let target_rows = sqlx::query(
+        "SELECT day_of_week, target_min FROM schedule_day_target WHERE template_id = ? ORDER BY day_of_week",
+    )
+    .bind(active_template_id)
+    .fetch_all(&state.pool)
+    .await
+    .map_err(|e| ApiError::from(e.to_string()))?;
+    let day_targets = target_rows
+        .into_iter()
+        .map(|row| {
+            Ok(DayTarget {
+                day_of_week: row.try_get(0).map_err(|e| ApiError::from(e.to_string()))?,
+                target_min: row.try_get(1).map_err(|e| ApiError::from(e.to_string()))?,
+            })
+        })
+        .collect::<Result<Vec<_>, ApiError>>()?;
+
     Ok(SchedulePayload {
         templates,
         active_template_id,
         blocks,
         checklist_items,
+        day_targets,
     })
 }
 
@@ -332,6 +357,31 @@ pub async fn activate_template(
         .await
         .map_err(|e| ApiError::from(e.to_string()))?;
     crate::notifications::recalculate_notifications(&app);
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn save_day_targets(
+    state: tauri::State<'_, AppState>,
+    template_id: i64,
+    targets: Vec<DayTarget>,
+) -> Result<(), ApiError> {
+    for t in &targets {
+        if !(0..=6).contains(&t.day_of_week) {
+            return Err(ApiError::from("Invalid day_of_week"));
+        }
+        sqlx::query(
+            "INSERT INTO schedule_day_target (template_id, day_of_week, target_min)
+             VALUES (?, ?, ?)
+             ON CONFLICT(template_id, day_of_week) DO UPDATE SET target_min = excluded.target_min",
+        )
+        .bind(template_id)
+        .bind(t.day_of_week)
+        .bind(t.target_min.max(0))
+        .execute(&state.pool)
+        .await
+        .map_err(|e| ApiError::from(e.to_string()))?;
+    }
     Ok(())
 }
 

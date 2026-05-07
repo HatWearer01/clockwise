@@ -1,11 +1,18 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen } from "@testing-library/react";
+import { invoke } from "@tauri-apps/api/core";
 import TodayTab from "./TodayTab";
 import { useTimerStore } from "../../store/timer";
 import { useScheduleStore } from "../../store/schedule";
 
+const mockInvoke = vi.mocked(invoke);
+
 beforeEach(() => {
   vi.clearAllMocks();
+  mockInvoke.mockImplementation((cmd: string) => {
+    if (cmd === "get_insights") return Promise.resolve([]);
+    return Promise.resolve(undefined);
+  });
   useScheduleStore.setState({
     blocks: [
       { id: 1, template_id: 1, day_of_week: new Date().getDay(), start_min: 540, end_min: 1020, label: "Work", color: "#34D399" },
@@ -32,6 +39,8 @@ describe("TodayTab", () => {
         week_done: false,
         day_done: false,
       overnight_session: false,
+      target_today_ms: 0,
+      off_schedule: false,
       },
       nowMs: Date.now(),
     });
@@ -55,6 +64,8 @@ describe("TodayTab", () => {
         week_done: false,
         day_done: false,
       overnight_session: false,
+      target_today_ms: 0,
+      off_schedule: false,
       },
       nowMs: Date.now(),
     });
@@ -76,6 +87,8 @@ describe("TodayTab", () => {
         week_done: false,
         day_done: false,
       overnight_session: false,
+      target_today_ms: 0,
+      off_schedule: false,
       },
       statusFetchedAt: Date.now(),
       nowMs: Date.now(),
@@ -98,6 +111,8 @@ describe("TodayTab", () => {
         week_done: false,
         day_done: false,
       overnight_session: false,
+      target_today_ms: 0,
+      off_schedule: false,
       },
       nowMs: Date.now(),
     });
@@ -118,6 +133,8 @@ describe("TodayTab", () => {
         week_done: false,
         day_done: false,
       overnight_session: false,
+      target_today_ms: 0,
+      off_schedule: false,
       },
       nowMs: Date.now(),
     });

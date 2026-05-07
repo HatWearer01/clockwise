@@ -10,6 +10,7 @@ beforeEach(() => {
     activeTemplateId: null,
     blocks: [],
     checklistItems: [],
+    dayTargets: [],
     saving: false,
     error: null,
     draftTemplateName: "",
@@ -28,6 +29,7 @@ describe("schedule store", () => {
           { id: 1, template_id: 1, day_of_week: 1, start_min: 540, end_min: 1020, label: "Work", color: "#34D399" },
         ],
         checklist_items: [{ id: 1, block_id: 1, text: "Standup", position: 0 }],
+        day_targets: [],
       };
       mockInvoke.mockResolvedValueOnce(payload);
 
@@ -38,6 +40,7 @@ describe("schedule store", () => {
       expect(state.activeTemplateId).toBe(1);
       expect(state.blocks).toHaveLength(1);
       expect(state.checklistItems).toHaveLength(1);
+      expect(state.dayTargets).toEqual([]);
       expect(state.error).toBeNull();
     });
 
@@ -216,6 +219,7 @@ describe("schedule store", () => {
           active_template_id: 1,
           blocks: [],
           checklist_items: [],
+          day_targets: [],
         }); // get_schedule (reload)
 
       await useScheduleStore.getState().save();

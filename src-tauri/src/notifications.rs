@@ -1,4 +1,4 @@
-use chrono::{Datelike, Local, Timelike};
+use chrono::{Datelike, Local, TimeZone, Timelike};
 use sqlx::Row;
 use tauri::{AppHandle, Emitter, Manager};
 use tauri_plugin_notification::NotificationExt;
@@ -208,8 +208,20 @@ async fn check_and_notify(app: &AppHandle, state: &AppState) {
         start_min = Some(start_min.map(|s| s.min(start)).unwrap_or(start));
         end_min = Some(end_min.map(|e| e.max(end)).unwrap_or(end));
     }
-    let (Some(start_min), Some(end_min)) = (start_min, end_min) else {
-        return;
+    // If no blocks exist, we may still need to send behind-target nudges
+    let has_blocks = start_min.is_some() && end_min.is_some();
+
+    let (in_shift, before_shift) = if let (Some(sm), Some(em)) = (start_min, end_min) {
+        let is_overnight = sm > em;
+        let in_s = if is_overnight {
+            minute >= sm || minute < em
+        } else {
+            minute >= sm && minute < em
+        };
+        let before_s = minute >= sm.saturating_sub(6) && minute < sm;
+        (in_s, before_s)
+    } else {
+        (false, false)
     };
 
     let has_active_session: bool = sqlx::query("SELECT COUNT(*) FROM session WHERE ended_at IS NULL")
@@ -219,52 +231,117 @@ async fn check_and_notify(app: &AppHandle, state: &AppState) {
         .map(|c| c > 0)
         .unwrap_or(false);
 
-    let is_overnight = start_min > end_min;
-    let in_shift = if is_overnight {
-        minute >= start_min || minute < end_min
-    } else {
-        minute >= start_min && minute < end_min
-    };
-    let before_shift = minute >= start_min.saturating_sub(6) && minute < start_min;
-
     let interval_ms = get_interval_ms(state).await;
     let date_key = now.format("%Y-%m-%d").to_string();
 
-    log::debug!("[notify] check: minute={minute}, start={start_min}, end={end_min}, in_shift={in_shift}, before={before_shift}, active={has_active_session}, interval={}min", interval_ms / 60000);
+    if let (Some(start_min), Some(end_min)) = (start_min, end_min) {
+        let is_overnight = start_min > end_min;
+        log::debug!(
+            "[notify] check: minute={minute}, start={start_min}, end={end_min}, in_shift={in_shift}, before={before_shift}, active={has_active_session}, interval={}min",
+            interval_ms / 60000
+        );
 
-    if before_shift {
-        send_reminder(
-            state, app,
-            &format!("{}:start-soon", date_key),
-            "Work starts soon",
-            "Your workday starts in a few minutes.",
-            None,
-            i64::MAX,
-        ).await;
-    } else if in_shift && !has_active_session {
-        send_reminder(
-            state, app,
-            &format!("{}:clock-in", date_key),
-            "Time to clock in",
-            "Your shift has started. Clock in to start tracking.",
-            Some("clock_in"),
-            interval_ms,
-        ).await;
-    } else if !in_shift && !before_shift && has_active_session && minute >= start_min {
-        let effective_past = if is_overnight {
-            minute >= end_min && minute < start_min
-        } else {
-            minute >= end_min
-        };
-        if effective_past {
+        if before_shift {
             send_reminder(
                 state, app,
-                &format!("{}:clock-out", date_key),
-                "Shift ended",
-                "Your scheduled shift has ended. Clock out when ready.",
-                Some("clock_out"),
+                &format!("{}:start-soon", date_key),
+                "Work starts soon",
+                "Your workday starts in a few minutes.",
+                None,
+                i64::MAX,
+            ).await;
+        } else if in_shift && !has_active_session {
+            send_reminder(
+                state, app,
+                &format!("{}:clock-in", date_key),
+                "Time to clock in",
+                "Your shift has started. Clock in to start tracking.",
+                Some("clock_in"),
                 interval_ms,
             ).await;
+        } else if !in_shift && !before_shift && has_active_session && minute >= start_min {
+            let effective_past = if is_overnight {
+                minute >= end_min && minute < start_min
+            } else {
+                minute >= end_min
+            };
+            if effective_past {
+                send_reminder(
+                    state, app,
+                    &format!("{}:clock-out", date_key),
+                    "Shift ended",
+                    "Your scheduled shift has ended. Clock out when ready.",
+                    Some("clock_out"),
+                    interval_ms,
+                ).await;
+            }
+        }
+    }
+
+    // Behind-target nudge: past schedule window but haven't hit daily target
+    if !has_active_session {
+        let explicit_target_min: i64 = sqlx::query_scalar(
+            "SELECT target_min FROM schedule_day_target WHERE template_id = ? AND day_of_week = ?",
+        )
+        .bind(template_id)
+        .bind(day)
+        .fetch_optional(&state.pool)
+        .await
+        .ok()
+        .flatten()
+        .unwrap_or(0);
+
+        let block_planned_ms: i64 = sqlx::query_scalar(
+            "SELECT COALESCE(SUM(CASE WHEN end_min > start_min THEN (end_min - start_min) * 60000 ELSE (1440 - start_min + end_min) * 60000 END), 0) FROM schedule_block WHERE template_id = ? AND day_of_week = ?",
+        )
+        .bind(template_id)
+        .bind(day)
+        .fetch_one(&state.pool)
+        .await
+        .unwrap_or(0);
+
+        let target_ms = if explicit_target_min > 0 {
+            explicit_target_min * 60 * 1000
+        } else {
+            block_planned_ms
+        };
+
+        if target_ms > 0 {
+            let today_start = Local::now().date_naive()
+                .and_hms_opt(0, 0, 0)
+                .and_then(|naive| Local.from_local_datetime(&naive).earliest())
+                .map(|dt| dt.timestamp_millis())
+                .unwrap_or(0);
+            let today_end = today_start + 24 * 60 * 60 * 1000;
+
+            let worked_ms = crate::commands::session::compute_actual_between_pub(&state.pool, today_start, today_end)
+                .await
+                .unwrap_or(0);
+
+            let past_window = if has_blocks {
+                !in_shift && !before_shift
+            } else {
+                true
+            };
+
+            if past_window && worked_ms < target_ms {
+                let remaining_min = (target_ms - worked_ms) / 60_000;
+                send_reminder(
+                    state, app,
+                    &format!("{}:behind-target", date_key),
+                    "Behind daily target",
+                    &format!(
+                        "You still have {} to go today. Clock in to stay on track.",
+                        if remaining_min >= 60 {
+                            format!("{:.1}h", remaining_min as f64 / 60.0)
+                        } else {
+                            format!("{}min", remaining_min)
+                        }
+                    ),
+                    Some("clock_in"),
+                    interval_ms,
+                ).await;
+            }
         }
     }
 

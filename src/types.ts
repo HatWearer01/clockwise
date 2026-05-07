@@ -14,7 +14,7 @@ export type ScheduleBlock = {
   color: string;
 };
 
-export type StatusState = "on_clock" | "on_break" | "off_day" | "before_shift" | "in_shift" | "after_shift" | "week_done" | "day_done";
+export type StatusState = "on_clock" | "on_break" | "off_day" | "before_shift" | "in_shift" | "after_shift" | "week_done" | "day_done" | "behind_target";
 
 export type StatusResponse = {
   active_session: SessionRecord | null;
@@ -26,6 +26,13 @@ export type StatusResponse = {
   week_done: boolean;
   day_done: boolean;
   overnight_session: boolean;
+  target_today_ms: number;
+  off_schedule: boolean;
+};
+
+export type DayTarget = {
+  day_of_week: number;
+  target_min: number;
 };
 
 export type ScheduleTemplate = {
@@ -46,6 +53,7 @@ export type SchedulePayload = {
   active_template_id: number;
   blocks: ScheduleBlock[];
   checklist_items: BlockChecklistItem[];
+  day_targets: DayTarget[];
 };
 
 export type SaveSchedulePayload = {
@@ -59,6 +67,7 @@ export type WeekDaySummary = {
   label: string;
   planned_ms: number;
   actual_ms: number;
+  target_ms: number;
 };
 
 export type WeekPoint = {
@@ -96,6 +105,14 @@ export type PendingRecovery = {
   suggested_end_at: number;
 };
 
+export type Subtask = {
+  id: number;
+  task_id: number;
+  text: string;
+  done: boolean;
+  position: number;
+};
+
 export type DailyTask = {
   id: number;
   date: string;
@@ -105,6 +122,7 @@ export type DailyTask = {
   created_at: number;
   position: number;
   recurring_task_id: number | null;
+  subtasks: Subtask[];
 };
 
 export type RecurrenceType = "daily" | "weekdays" | "specific_days" | "weekly" | "every_n_days";
@@ -129,4 +147,31 @@ export type RecurringStatEntry = {
 export type WeekTasksResponse = {
   days: Record<string, DailyTask[]>;
   recurring_stats: Record<number, RecurringStatEntry>;
+};
+
+export type Insight = {
+  kind: string;
+  message: string;
+  severity: "info" | "warning" | "positive";
+};
+
+export type WeeklyReviewDay = {
+  label: string;
+  target_ms: number;
+  actual_ms: number;
+  on_time: boolean;
+};
+
+export type WeeklyReview = {
+  week_label: string;
+  days_worked: number;
+  days_scheduled: number;
+  total_target_ms: number;
+  total_actual_ms: number;
+  avg_start_minute: number | null;
+  avg_end_minute: number | null;
+  on_time_days: number;
+  off_schedule_sessions: number;
+  day_details: WeeklyReviewDay[];
+  insights: Insight[];
 };

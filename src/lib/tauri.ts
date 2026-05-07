@@ -2,6 +2,8 @@ import { invoke } from "@tauri-apps/api/core";
 import type {
   AppSettings,
   DailyTask,
+  DayTarget,
+  Insight,
   PendingRecovery,
   RecurrenceType,
   RecurringTask,
@@ -10,8 +12,10 @@ import type {
   SessionRecord,
   StatsSummary,
   StatusResponse,
+  Subtask,
   WeekDaySummary,
   WeekTasksResponse,
+  WeeklyReview,
 } from "../types";
 
 export function apiClockIn() {
@@ -40,6 +44,10 @@ export function apiGetSchedule() {
 
 export function apiSaveSchedule(payload: SaveSchedulePayload) {
   return invoke<void>("save_schedule", { payload });
+}
+
+export function apiSaveDayTargets(templateId: number, targets: DayTarget[]) {
+  return invoke<void>("save_day_targets", { templateId, targets });
 }
 
 export function apiCreateTemplate(name: string) {
@@ -179,4 +187,32 @@ export function apiDeleteRecurringTask(id: number, deleteInstances: boolean) {
 
 export function apiGetTasksForWeek(weekStart: string) {
   return invoke<WeekTasksResponse>("get_tasks_for_week", { weekStart });
+}
+
+export function apiAddSubtask(taskId: number, text: string) {
+  return invoke<Subtask>("add_subtask", { taskId, text });
+}
+
+export function apiToggleSubtask(id: number, done: boolean) {
+  return invoke<void>("toggle_subtask", { id, done });
+}
+
+export function apiDeleteSubtask(id: number) {
+  return invoke<void>("delete_subtask", { id });
+}
+
+export function apiGetInsights(weekStartDay?: number) {
+  return invoke<Insight[]>("get_insights", { weekStartDay: weekStartDay ?? null });
+}
+
+export function apiGetWeeklyReview(weekStartDay?: number, weekStart?: string) {
+  return invoke<WeeklyReview>("get_weekly_review", { weekStartDay: weekStartDay ?? null, weekStart: weekStart ?? null });
+}
+
+export function apiGetLastReviewedWeek() {
+  return invoke<string | null>("get_last_reviewed_week");
+}
+
+export function apiSetLastReviewedWeek(weekStart: string) {
+  return invoke<void>("set_last_reviewed_week", { weekStart });
 }

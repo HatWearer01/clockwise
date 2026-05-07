@@ -2,12 +2,15 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import {
   apiAddDailyTask,
   apiAddRecurringTask,
+  apiAddSubtask,
   apiDeleteDailyTask,
   apiDeleteRecurringTask,
+  apiDeleteSubtask,
   apiGetRecurringTasks,
   apiGetTasksForWeek,
   apiRolloverDailyTask,
   apiToggleDailyTask,
+  apiToggleSubtask,
   apiUpdateDailyTask,
   apiUpdateRecurringTask,
 } from "../../lib/tauri";
@@ -42,6 +45,8 @@ export default function TasksTab() {
   const [rolloverTaskId, setRolloverTaskId] = useState<number | null>(null);
   const [editingId, setEditingId] = useState<number | null>(null);
   const [editText, setEditText] = useState("");
+  const [expandedTaskId, setExpandedTaskId] = useState<number | null>(null);
+  const [newSubtaskText, setNewSubtaskText] = useState("");
   const inputRef = useRef<HTMLInputElement>(null);
 
   const [showRecurring, setShowRecurring] = useState(false);
@@ -126,6 +131,30 @@ export default function TasksTab() {
       await apiUpdateDailyTask(id, text);
       setEditingId(null);
       setEditText("");
+      await loadWeek();
+    } catch { /* ignore */ }
+  }
+
+  async function handleAddSubtask(taskId: number) {
+    const text = newSubtaskText.trim();
+    if (!text) return;
+    try {
+      await apiAddSubtask(taskId, text);
+      setNewSubtaskText("");
+      await loadWeek();
+    } catch { /* ignore */ }
+  }
+
+  async function handleToggleSubtask(id: number, done: boolean) {
+    try {
+      await apiToggleSubtask(id, done);
+      await loadWeek();
+    } catch { /* ignore */ }
+  }
+
+  async function handleDeleteSubtask(id: number) {
+    try {
+      await apiDeleteSubtask(id);
       await loadWeek();
     } catch { /* ignore */ }
   }
@@ -262,80 +291,141 @@ export default function TasksTab() {
         <ul className="daily-tasks-list">
           {tasks.map((task) => {
             const stat = task.recurring_task_id ? recurringStats[task.recurring_task_id] : null;
+            const isExpanded = expandedTaskId === task.id;
+            const subDone = task.subtasks.filter((s) => s.done).length;
+            const subTotal = task.subtasks.length;
             return (
               <li key={task.id} className={`daily-task-item ${task.done ? "daily-task-done" : ""}`}>
-                {editingId === task.id ? (
-                  <form
-                    className="daily-tasks-add"
-                    style={{ flex: 1 }}
-                    onSubmit={(e) => { e.preventDefault(); void handleSaveEdit(task.id); }}
-                  >
-                    <input
-                      type="text"
-                      className="daily-tasks-input"
-                      value={editText}
-                      onChange={(e) => setEditText(e.currentTarget.value)}
-                      autoFocus
-                      onBlur={() => { setEditingId(null); setEditText(""); }}
-                      onKeyDown={(e) => { if (e.key === "Escape") { setEditingId(null); setEditText(""); } }}
-                    />
-                  </form>
-                ) : (
-                  <label className="daily-task-label">
-                    <input
-                      type="checkbox"
-                      checked={task.done}
-                      onChange={() => void handleToggle(task.id, !task.done)}
-                    />
-                    <span
-                      className={task.done ? "daily-task-text-done" : ""}
-                      onDoubleClick={() => { if (!task.done && !isPastWeek) { setEditingId(task.id); setEditText(task.text); } }}
+                <div className="daily-task-row">
+                  {editingId === task.id ? (
+                    <form
+                      className="daily-tasks-add"
+                      style={{ flex: 1 }}
+                      onSubmit={(e) => { e.preventDefault(); void handleSaveEdit(task.id); }}
                     >
-                      {task.recurring_task_id != null && <span className="recurring-badge" title="Recurring task">↻</span>}
-                      {task.text}
-                    </span>
-                    {stat && (
-                      <span className="recurring-stat-chip" title="Completions this week">
-                        {stat.done}/{stat.total}
+                      <input
+                        type="text"
+                        className="daily-tasks-input"
+                        value={editText}
+                        onChange={(e) => setEditText(e.currentTarget.value)}
+                        autoFocus
+                        onBlur={() => { setEditingId(null); setEditText(""); }}
+                        onKeyDown={(e) => { if (e.key === "Escape") { setEditingId(null); setEditText(""); } }}
+                      />
+                    </form>
+                  ) : (
+                    <label className="daily-task-label">
+                      <input
+                        type="checkbox"
+                        checked={task.done}
+                        onChange={() => void handleToggle(task.id, !task.done)}
+                      />
+                      <span
+                        className={task.done ? "daily-task-text-done" : ""}
+                        onDoubleClick={() => { if (!task.done && !isPastWeek) { setEditingId(task.id); setEditText(task.text); } }}
+                      >
+                        {task.recurring_task_id != null && <span className="recurring-badge" title="Recurring task">↻</span>}
+                        {task.text}
                       </span>
-                    )}
-                  </label>
-                )}
-                {!isPastWeek && (
-                  <div className="daily-task-actions">
-                    {!task.done && editingId !== task.id && (
-                      <div style={{ position: "relative" }}>
+                      {subTotal > 0 && (
+                        <span className="subtask-count" title={`${subDone}/${subTotal} subtasks done`}>
+                          {subDone}/{subTotal}
+                        </span>
+                      )}
+                      {stat && (
+                        <span className="recurring-stat-chip" title="Completions this week">
+                          {stat.done}/{stat.total}
+                        </span>
+                      )}
+                    </label>
+                  )}
+                  {!isPastWeek && (
+                    <div className="daily-task-actions">
+                      {editingId !== task.id && (
+                        <button
+                          className={`ghost daily-task-btn ${isExpanded ? "daily-task-btn-active" : ""}`}
+                          title="Subtasks"
+                          onClick={() => {
+                            setExpandedTaskId(isExpanded ? null : task.id);
+                            setNewSubtaskText("");
+                          }}
+                        >
+                          ⋯
+                        </button>
+                      )}
+                      {!task.done && editingId !== task.id && (
+                        <div style={{ position: "relative" }}>
+                          <button
+                            className="ghost daily-task-btn"
+                            title="Move to another day"
+                            onClick={() => setRolloverTaskId(rolloverTaskId === task.id ? null : task.id)}
+                          >
+                            &#x21B7;
+                          </button>
+                          {rolloverTaskId === task.id && (
+                            <div className="daily-task-rollover-menu">
+                              {rolloverTargets.map((d) => (
+                                <button
+                                  key={d.date}
+                                  className="daily-task-rollover-option"
+                                  onClick={() => void handleRollover(task.id, d.date)}
+                                >
+                                  {d.label}{d.date === isoToday ? " (today)" : ""}
+                                </button>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      )}
+                      {editingId !== task.id && (
                         <button
                           className="ghost daily-task-btn"
-                          title="Move to another day"
-                          onClick={() => setRolloverTaskId(rolloverTaskId === task.id ? null : task.id)}
+                          title="Delete task"
+                          onClick={() => void handleDelete(task.id)}
                         >
-                          &#x21B7;
+                          &times;
                         </button>
-                        {rolloverTaskId === task.id && (
-                          <div className="daily-task-rollover-menu">
-                            {rolloverTargets.map((d) => (
-                              <button
-                                key={d.date}
-                                className="daily-task-rollover-option"
-                                onClick={() => void handleRollover(task.id, d.date)}
-                              >
-                                {d.label}{d.date === isoToday ? " (today)" : ""}
-                              </button>
-                            ))}
-                          </div>
-                        )}
+                      )}
+                    </div>
+                  )}
+                </div>
+                {isExpanded && (
+                  <div className="subtask-panel">
+                    {task.subtasks.map((sub) => (
+                      <div key={sub.id} className={`subtask-item ${sub.done ? "subtask-done" : ""}`}>
+                        <label className="subtask-label">
+                          <input
+                            type="checkbox"
+                            checked={sub.done}
+                            onChange={() => void handleToggleSubtask(sub.id, !sub.done)}
+                          />
+                          <span className={sub.done ? "daily-task-text-done" : ""}>{sub.text}</span>
+                        </label>
+                        <button
+                          className="ghost subtask-delete"
+                          title="Remove subtask"
+                          onClick={() => void handleDeleteSubtask(sub.id)}
+                        >
+                          &times;
+                        </button>
                       </div>
-                    )}
-                    {editingId !== task.id && (
-                      <button
-                        className="ghost daily-task-btn"
-                        title="Delete task"
-                        onClick={() => void handleDelete(task.id)}
-                      >
-                        &times;
+                    ))}
+                    <form
+                      className="subtask-add"
+                      onSubmit={(e) => { e.preventDefault(); void handleAddSubtask(task.id); }}
+                    >
+                      <input
+                        type="text"
+                        placeholder="Add subtask..."
+                        value={newSubtaskText}
+                        onChange={(e) => setNewSubtaskText(e.currentTarget.value)}
+                        className="subtask-input"
+                        autoFocus
+                      />
+                      <button type="submit" className="chip chip-active chip-sm" disabled={!newSubtaskText.trim()}>
+                        Add
                       </button>
-                    )}
+                    </form>
                   </div>
                 )}
               </li>

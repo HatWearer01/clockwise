@@ -6,6 +6,7 @@ import App from "./App";
 import { useTimerStore } from "./store/timer";
 import { useScheduleStore } from "./store/schedule";
 import { useSettingsStore } from "./store/settings";
+import { weekDayDates } from "./lib/time";
 
 const mockListen = vi.mocked(listen);
 const mockEmit = vi.mocked(emit);
@@ -21,7 +22,13 @@ vi.mock("framer-motion", () => ({
 
 beforeEach(() => {
   vi.clearAllMocks();
-  mockInvoke.mockResolvedValue(undefined);
+  mockInvoke.mockImplementation((cmd: string) => {
+    if (cmd === "get_last_reviewed_week") {
+      const wsd = useSettingsStore.getState().appSettings.week_start_day as 0 | 1;
+      return Promise.resolve(weekDayDates(0, wsd)[0].date);
+    }
+    return Promise.resolve(undefined);
+  });
   mockListen.mockImplementation(() => Promise.resolve(() => {}));
   mockEmit.mockResolvedValue(undefined);
   localStorage.clear();
@@ -37,6 +44,8 @@ beforeEach(() => {
       week_done: false,
       day_done: false,
       overnight_session: false,
+      target_today_ms: 0,
+      off_schedule: false,
     },
     statusFetchedAt: Date.now(),
     notice: null,
@@ -52,6 +61,7 @@ beforeEach(() => {
     activeTemplateId: 1,
     blocks: [],
     checklistItems: [],
+    dayTargets: [],
     saving: false,
     error: null,
     draftTemplateName: "",
@@ -107,6 +117,8 @@ describe("App", () => {
         week_done: false,
         day_done: false,
       overnight_session: false,
+      target_today_ms: 0,
+      off_schedule: false,
       },
       nowMs: Date.now(),
     });
@@ -165,6 +177,27 @@ describe("App", () => {
     render(<App />);
     expect(screen.getByText("Take a break?")).toBeInTheDocument();
     expect(screen.getByText("Start break")).toBeInTheDocument();
+  });
+
+  it("shows off-schedule banner when clocked in off-schedule", () => {
+    useTimerStore.setState({
+      status: {
+        active_session: { id: 1, started_at: Date.now() - 1000, ended_at: null },
+        worked_today_ms: 1000,
+        break_today_ms: 0,
+        state: "on_clock",
+        next_boundary_ms: null,
+        paused: false,
+        week_done: false,
+        day_done: false,
+        overnight_session: false,
+        target_today_ms: 0,
+        off_schedule: true,
+      },
+      nowMs: Date.now(),
+    });
+    render(<App />);
+    expect(screen.getByText("You are working outside your scheduled hours.")).toBeInTheDocument();
   });
 
   it("shows error banner when error is set", async () => {

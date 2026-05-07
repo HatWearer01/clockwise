@@ -1,4 +1,5 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi, afterEach } from "vitest";
+import type { ScheduleBlock } from "../types";
 import {
   dayName,
   dayNameShort,
@@ -6,6 +7,7 @@ import {
   formatHoursMinutes,
   formatDecimalHours,
   formatMinuteAsTime,
+  isCurrentlyInSchedule,
   timeInputValue,
   parseTimeInput,
   weekDayDates,
@@ -179,6 +181,51 @@ describe("weekDayDates", () => {
     const prevStart = new Date(prev[0].date + "T00:00:00");
     const diffDays = (currentStart.getTime() - prevStart.getTime()) / (24 * 60 * 60 * 1000);
     expect(diffDays).toBe(7);
+  });
+});
+
+describe("isCurrentlyInSchedule", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("returns false when there are no blocks for today", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-05-06T12:00:00")); // Wednesday
+    const blocks: ScheduleBlock[] = [
+      { id: 1, template_id: 1, day_of_week: 1, start_min: 540, end_min: 1020, label: "Work", color: "#000" },
+    ];
+    expect(isCurrentlyInSchedule(blocks)).toBe(false);
+  });
+
+  it("returns true when now is inside a same-day block", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-05-06T14:00:00"));
+    const dow = new Date("2026-05-06T14:00:00").getDay();
+    const blocks: ScheduleBlock[] = [
+      { id: 1, template_id: 1, day_of_week: dow, start_min: 540, end_min: 1020, label: "Work", color: "#000" },
+    ];
+    expect(isCurrentlyInSchedule(blocks)).toBe(true);
+  });
+
+  it("returns true when now is in an overnight block before midnight", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-05-06T23:00:00"));
+    const dow = new Date("2026-05-06T23:00:00").getDay();
+    const blocks: ScheduleBlock[] = [
+      { id: 1, template_id: 1, day_of_week: dow, start_min: 1320, end_min: 360, label: "Night", color: "#000" },
+    ];
+    expect(isCurrentlyInSchedule(blocks)).toBe(true);
+  });
+
+  it("returns true when now is in an overnight block after midnight", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-05-07T02:00:00"));
+    const dow = new Date("2026-05-07T02:00:00").getDay();
+    const blocks: ScheduleBlock[] = [
+      { id: 1, template_id: 1, day_of_week: dow, start_min: 1320, end_min: 360, label: "Night", color: "#000" },
+    ];
+    expect(isCurrentlyInSchedule(blocks)).toBe(true);
   });
 });
 

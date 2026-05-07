@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { invoke } from "@tauri-apps/api/core";
 import WeekTab from "./WeekTab";
+import type { WeeklyReview } from "../../types";
 
 const mockInvoke = vi.mocked(invoke);
 
@@ -10,13 +11,13 @@ beforeEach(() => {
 });
 
 const mockWeekSummary = [
-  { day_of_week: 1, label: "Mon", planned_ms: 28_800_000, actual_ms: 25_200_000 },
-  { day_of_week: 2, label: "Tue", planned_ms: 28_800_000, actual_ms: 28_800_000 },
-  { day_of_week: 3, label: "Wed", planned_ms: 28_800_000, actual_ms: 14_400_000 },
-  { day_of_week: 4, label: "Thu", planned_ms: 28_800_000, actual_ms: 0 },
-  { day_of_week: 5, label: "Fri", planned_ms: 28_800_000, actual_ms: 0 },
-  { day_of_week: 6, label: "Sat", planned_ms: 0, actual_ms: 0 },
-  { day_of_week: 0, label: "Sun", planned_ms: 0, actual_ms: 0 },
+  { day_of_week: 1, label: "Mon", planned_ms: 28_800_000, actual_ms: 25_200_000, target_ms: 0 },
+  { day_of_week: 2, label: "Tue", planned_ms: 28_800_000, actual_ms: 28_800_000, target_ms: 0 },
+  { day_of_week: 3, label: "Wed", planned_ms: 28_800_000, actual_ms: 14_400_000, target_ms: 0 },
+  { day_of_week: 4, label: "Thu", planned_ms: 28_800_000, actual_ms: 0, target_ms: 0 },
+  { day_of_week: 5, label: "Fri", planned_ms: 28_800_000, actual_ms: 0, target_ms: 0 },
+  { day_of_week: 6, label: "Sat", planned_ms: 0, actual_ms: 0, target_ms: 0 },
+  { day_of_week: 0, label: "Sun", planned_ms: 0, actual_ms: 0, target_ms: 0 },
 ];
 
 const mockStats = {
@@ -31,11 +32,28 @@ const mockStats = {
   month_total_ms: 400_000_000,
 };
 
+const mockWeeklyReview: WeeklyReview = {
+  week_label: "04/28 – 05/04",
+  days_worked: 4,
+  days_scheduled: 5,
+  total_target_ms: 144_000_000,
+  total_actual_ms: 140_000_000,
+  avg_start_minute: 540,
+  avg_end_minute: 1020,
+  on_time_days: 3,
+  off_schedule_sessions: 0,
+  day_details: [
+    { label: "Mon", target_ms: 28_800_000, actual_ms: 28_800_000, on_time: true },
+  ],
+  insights: [],
+};
+
 function setupMocks() {
   mockInvoke.mockImplementation((cmd: string) => {
     if (cmd === "get_week_summary") return Promise.resolve(mockWeekSummary);
     if (cmd === "get_stats_summary") return Promise.resolve(mockStats);
     if (cmd === "is_week_done") return Promise.resolve(false);
+    if (cmd === "get_weekly_review") return Promise.resolve(mockWeeklyReview);
     return Promise.resolve(undefined);
   });
 }

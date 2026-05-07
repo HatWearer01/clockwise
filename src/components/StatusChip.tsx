@@ -13,6 +13,7 @@ const LABELS: Record<StatusState, string> = {
   after_shift: "After shift",
   week_done: "Week done",
   day_done: "Done for today",
+  behind_target: "Behind target",
 };
 
 export default function StatusChip({ state }: StatusChipProps) {

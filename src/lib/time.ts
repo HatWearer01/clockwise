@@ -1,4 +1,4 @@
-import type { StatusState } from "../types";
+import type { ScheduleBlock, StatusState } from "../types";
 
 const DAY_NAMES = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
 const DAY_NAMES_SHORT = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
@@ -120,6 +120,18 @@ export function blockDurationMs(startMin: number, endMin: number): number {
   return 0;
 }
 
+export function isCurrentlyInSchedule(blocks: ScheduleBlock[]): boolean {
+  const now = new Date();
+  const todayDow = now.getDay();
+  const todayBlocks = blocks.filter((b) => b.day_of_week === todayDow);
+  if (todayBlocks.length === 0) return false;
+  const minuteNow = now.getHours() * 60 + now.getMinutes();
+  return todayBlocks.some((b) => {
+    if (b.start_min > b.end_min) return minuteNow >= b.start_min || minuteNow < b.end_min;
+    return minuteNow >= b.start_min && minuteNow < b.end_min;
+  });
+}
+
 export function pct(actual: number, planned: number): number {
   if (planned <= 0) return 0;
   return Math.min(100, Math.round((actual / planned) * 100));
@@ -133,6 +145,7 @@ export function stateLabel(state: StatusState): string {
   if (state === "in_shift") return "Shift active";
   if (state === "week_done") return "Week done";
   if (state === "day_done") return "Done for today";
+  if (state === "behind_target") return "Behind target";
   return "After shift";
 }
 
@@ -147,5 +160,6 @@ export function stateMessage(state: StatusState, boundary: number | null): strin
     return `Your shift starts at ${formatShortTime(boundary)}. Clock in when you're ready.`;
   }
   if (state === "in_shift") return "You're within your scheduled hours. Clock in to start tracking.";
+  if (state === "behind_target") return "You haven't hit your daily target yet. Clock in when ready.";
   return "Your scheduled shift has ended for today.";
 }

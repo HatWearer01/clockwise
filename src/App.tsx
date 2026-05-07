@@ -2,12 +2,14 @@ import { useEffect, useMemo, useState } from "react";
 import { emit, listen } from "@tauri-apps/api/event";
 import Expanded from "./views/Expanded";
 import Compact from "./views/Compact";
+import WeeklyReview from "./components/WeeklyReview";
 import { useScheduleStore } from "./store/schedule";
 import { useSettingsStore } from "./store/settings";
 import { useTimerStore } from "./store/timer";
-import { apiCheckNotifications, apiShowWindow } from "./lib/tauri";
-import { parseTimeInput, timeInputValue } from "./lib/time";
+import { apiCheckNotifications, apiGetLastReviewedWeek, apiGetWeeklyReview, apiSetLastReviewedWeek, apiShowWindow } from "./lib/tauri";
+import { parseTimeInput, timeInputValue, weekDayDates } from "./lib/time";
 import Titlebar from "./components/Titlebar";
+import type { WeeklyReview as WeeklyReviewType } from "./types";
 
 function App() {
   const { mode } = useSettingsStore();
@@ -15,6 +17,7 @@ function App() {
   const scheduleStore = useScheduleStore();
   const error = timerStore.error || scheduleStore.error;
   const [recoveryEditTime, setRecoveryEditTime] = useState<string>("");
+  const [weeklyReview, setWeeklyReview] = useState<WeeklyReviewType | null>(null);
 
   const suggestedRecoveryTime = useMemo(() => {
     if (!timerStore.pendingRecovery) return "";
@@ -26,6 +29,27 @@ function App() {
       setRecoveryEditTime(suggestedRecoveryTime);
     }
   }, [suggestedRecoveryTime, timerStore.pendingRecovery]);
+
+  useEffect(() => {
+    async function checkWeeklyReview() {
+      try {
+        const { appSettings } = useSettingsStore.getState();
+        const wsd = appSettings.week_start_day as 0 | 1;
+        const thisWeekDays = weekDayDates(0, wsd);
+        const thisWeekStart = thisWeekDays[0].date;
+        const lastReviewed = await apiGetLastReviewedWeek();
+        if (lastReviewed !== thisWeekStart) {
+          const review = await apiGetWeeklyReview(wsd);
+          if (review && (review.total_actual_ms > 0 || review.total_target_ms > 0)) {
+            setWeeklyReview(review);
+          }
+          await apiSetLastReviewedWeek(thisWeekStart);
+        }
+      } catch { /* ignore */ }
+    }
+    const timer = setTimeout(checkWeeklyReview, 2000);
+    return () => clearTimeout(timer);
+  }, []);
 
   useEffect(() => {
     useSettingsStore.getState().init();
@@ -128,6 +152,9 @@ function App() {
   return (
     <main className="app-shell">
       <Titlebar />
+      {weeklyReview ? (
+        <WeeklyReview review={weeklyReview} onClose={() => setWeeklyReview(null)} />
+      ) : null}
       {timerStore.notice ? <div className="banner banner-info">{timerStore.notice}</div> : null}
       {timerStore.pendingRecovery ? (
         <div className="banner banner-info banner-action">
@@ -221,6 +248,11 @@ function App() {
         <button className="banner banner-error" onClick={() => { timerStore.clearError(); scheduleStore.clearError(); }}>
           {error}
         </button>
+      ) : null}
+      {timerStore.status?.off_schedule && timerStore.status?.active_session ? (
+        <div className="banner banner-warning">
+          You are working outside your scheduled hours.
+        </div>
       ) : null}
       <div className="view-slot">
         {mode === "compact" ? <Compact /> : <Expanded />}

@@ -41,6 +41,8 @@ describe("Compact view", () => {
         week_done: false,
         day_done: false,
       overnight_session: false,
+      target_today_ms: 0,
+      off_schedule: false,
       },
       nowMs: Date.now(),
     });
@@ -61,6 +63,8 @@ describe("Compact view", () => {
         week_done: false,
         day_done: false,
       overnight_session: false,
+      target_today_ms: 0,
+      off_schedule: false,
       },
       nowMs: Date.now(),
     });
@@ -81,6 +85,8 @@ describe("Compact view", () => {
         week_done: false,
         day_done: false,
       overnight_session: false,
+      target_today_ms: 0,
+      off_schedule: false,
       },
       nowMs: Date.now(),
     });
@@ -102,6 +108,8 @@ describe("Compact view", () => {
         week_done: false,
         day_done: false,
       overnight_session: false,
+      target_today_ms: 0,
+      off_schedule: false,
       },
       nowMs: Date.now(),
     });
@@ -122,6 +130,8 @@ describe("Compact view", () => {
         week_done: false,
         day_done: false,
       overnight_session: false,
+      target_today_ms: 0,
+      off_schedule: false,
       },
       statusFetchedAt: Date.now(),
       nowMs: Date.now(),

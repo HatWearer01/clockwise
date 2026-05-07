@@ -1,4 +1,6 @@
-use chrono::{Datelike, Local, TimeZone, Timelike};
+use std::collections::HashMap;
+
+use chrono::{Datelike, Local, LocalResult, TimeZone, Timelike};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sqlx::{Row, SqlitePool};
@@ -44,6 +46,8 @@ pub struct StatusResponse {
     pub week_done: bool,
     pub day_done: bool,
     pub overnight_session: bool,
+    pub target_today_ms: i64,
+    pub off_schedule: bool,
 }
 
 #[derive(Debug, Serialize)]
@@ -52,6 +56,7 @@ pub struct WeekDaySummary {
     pub label: String,
     pub planned_ms: i64,
     pub actual_ms: i64,
+    pub target_ms: i64,
 }
 
 #[derive(Debug, Serialize)]
@@ -67,6 +72,36 @@ pub struct StatsSummary {
     pub avg_start_minute: Option<i64>,
     pub avg_end_minute: Option<i64>,
     pub month_total_ms: i64,
+}
+
+#[derive(Debug, Serialize, Clone)]
+pub struct Insight {
+    pub kind: String,
+    pub message: String,
+    pub severity: String,
+}
+
+#[derive(Debug, Serialize, Clone)]
+pub struct WeeklyReviewDay {
+    pub label: String,
+    pub target_ms: i64,
+    pub actual_ms: i64,
+    pub on_time: bool, // started within 30 min of first block
+}
+
+#[derive(Debug, Serialize, Clone)]
+pub struct WeeklyReview {
+    pub week_label: String, // e.g., "Apr 28 – May 4"
+    pub days_worked: i64,
+    pub days_scheduled: i64,
+    pub total_target_ms: i64,
+    pub total_actual_ms: i64,
+    pub avg_start_minute: Option<i64>,
+    pub avg_end_minute: Option<i64>,
+    pub on_time_days: i64,          // days where first session started within 30 min of first block
+    pub off_schedule_sessions: i64, // sessions started at a time not within any block for that day
+    pub day_details: Vec<WeeklyReviewDay>,
+    pub insights: Vec<Insight>, // reuse the Insight type from get_insights
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -172,6 +207,21 @@ fn day_label(day_of_week: i64) -> &'static str {
     }
 }
 
+fn format_review_calendar_day(d: chrono::NaiveDate) -> String {
+    format!("{} {}", d.format("%b"), d.day())
+}
+
+fn minute_in_any_block(current_minute: i64, blocks: &[ScheduleBlock]) -> bool {
+    blocks.iter().any(|block| {
+        let is_overnight = block.start_min > block.end_min;
+        if is_overnight {
+            current_minute >= block.start_min || current_minute < block.end_min
+        } else {
+            current_minute >= block.start_min && current_minute < block.end_min
+        }
+    })
+}
+
 async fn compute_actual_between(pool: &SqlitePool, start_ms: i64, end_ms: i64) -> Result<i64, String> {
     let now = now_ms();
     let gross: i64 = sqlx::query(
@@ -202,6 +252,10 @@ async fn compute_actual_between(pool: &SqlitePool, start_ms: i64, end_ms: i64) -
     .try_get(0)
     .map_err(|e| e.to_string())?;
     Ok((gross - pauses).max(0))
+}
+
+pub async fn compute_actual_between_pub(pool: &SqlitePool, start_ms: i64, end_ms: i64) -> Result<i64, String> {
+    compute_actual_between(pool, start_ms, end_ms).await
 }
 
 #[tauri::command]
@@ -344,6 +398,34 @@ pub async fn get_status(state: tauri::State<'_, AppState>) -> Result<StatusRespo
     let now_local = Local::now();
     let current_minute = i64::from(now_local.hour()) * 60 + i64::from(now_local.minute());
 
+    let template_id_for_target = active_template_id(&state.pool).await.unwrap_or(0);
+    let day_of_week_today = i64::from(now_local.weekday().num_days_from_sunday());
+    let target_min_row: Option<i64> = sqlx::query_scalar(
+        "SELECT target_min FROM schedule_day_target WHERE template_id = ? AND day_of_week = ?",
+    )
+    .bind(template_id_for_target)
+    .bind(day_of_week_today)
+    .fetch_optional(&state.pool)
+    .await
+    .ok()
+    .flatten();
+    let explicit_target_min = target_min_row.unwrap_or(0);
+    let planned_from_blocks_ms: i64 = today_blocks
+        .iter()
+        .map(|b| {
+            if b.end_min > b.start_min {
+                (b.end_min - b.start_min) * 60_000
+            } else {
+                (1440 - b.start_min + b.end_min) * 60_000
+            }
+        })
+        .sum();
+    let target_today_ms = if explicit_target_min > 0 {
+        explicit_target_min * 60_000
+    } else {
+        planned_from_blocks_ms
+    };
+
     let paused = if let Some(session) = &active_session {
         active_pause_for_session(&state.pool, session.id)
             .await
@@ -417,15 +499,33 @@ pub async fn get_status(state: tauri::State<'_, AppState>) -> Result<StatusRespo
             }
         }
 
-        if !any_block {
+        if !any_block && explicit_target_min > 0 && worked_today_ms < target_today_ms {
+            ("behind_target".to_string(), None)
+        } else if !any_block {
             ("off_day".to_string(), None)
         } else if let Some(end_min) = current_block_end {
             ("in_shift".to_string(), boundary_timestamp(end_min, end_is_tomorrow))
         } else if let Some(start_min) = next_start {
             ("before_shift".to_string(), boundary_timestamp_for_today(start_min))
+        } else if target_today_ms > 0 && worked_today_ms < target_today_ms {
+            ("behind_target".to_string(), None)
         } else {
             ("after_shift".to_string(), None)
         }
+    };
+
+    let off_schedule = if active_session.is_some() {
+        let in_any_block = today_blocks.iter().any(|block| {
+            let is_overnight = block.start_min > block.end_min;
+            if is_overnight {
+                current_minute >= block.start_min || current_minute < block.end_min
+            } else {
+                current_minute >= block.start_min && current_minute < block.end_min
+            }
+        });
+        !in_any_block
+    } else {
+        false
     };
 
     let overnight_session = active_session
@@ -443,6 +543,8 @@ pub async fn get_status(state: tauri::State<'_, AppState>) -> Result<StatusRespo
         week_done,
         day_done,
         overnight_session,
+        target_today_ms,
+        off_schedule,
     })
 }
 
@@ -495,14 +597,33 @@ pub async fn get_week_summary(
         .map_err(|e| ApiError::from(e.to_string()))?
         .try_get(0)
         .map_err(|e| ApiError::from(e.to_string()))?;
+
+        let day_target_min: i64 = sqlx::query_scalar(
+            "SELECT target_min FROM schedule_day_target WHERE template_id = ? AND day_of_week = ?",
+        )
+        .bind(template_id)
+        .bind(weekday)
+        .fetch_optional(&state.pool)
+        .await
+        .ok()
+        .flatten()
+        .unwrap_or(0);
+
+        let effective_planned_ms = if day_target_min > 0 {
+            day_target_min * 60_000
+        } else {
+            planned_ms
+        };
+
         let actual_ms = compute_actual_between(&state.pool, day_start, day_end)
             .await
             .map_err(ApiError::from)?;
         rows.push(WeekDaySummary {
             day_of_week: weekday,
             label: day_label(weekday).to_string(),
-            planned_ms,
+            planned_ms: effective_planned_ms,
             actual_ms,
+            target_ms: day_target_min * 60_000,
         });
     }
 
@@ -663,6 +784,583 @@ pub async fn get_stats_summary(
         avg_end_minute,
         month_total_ms,
     })
+}
+
+#[tauri::command]
+pub async fn get_insights(
+    state: tauri::State<'_, AppState>,
+    week_start_day: Option<i64>,
+) -> Result<Vec<Insight>, ApiError> {
+    let wsd = week_start_day.unwrap_or(1);
+    let now = Local::now();
+    let today = now.date_naive();
+    let week_start = week_start_date_for(today, wsd);
+    let mut insights = Vec::new();
+    let template_id = active_template_id(&state.pool).await.unwrap_or(0);
+
+    let week_start_ms = Local
+        .from_local_datetime(&week_start.and_hms_opt(0, 0, 0).ok_or(ApiError::from("bad date"))?)
+        .earliest()
+        .ok_or(ApiError::from("bad tz"))?
+        .timestamp_millis();
+    let week_end_ms = week_start_ms + 7 * 24 * 60 * 60 * 1000;
+    let offset_min = i64::from(now.offset().local_minus_utc()) / 60;
+
+    // a) Start time drift
+    let session_count: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM session WHERE started_at >= ? AND started_at < ?",
+    )
+    .bind(week_start_ms)
+    .bind(week_end_ms)
+    .fetch_one(&state.pool)
+    .await
+    .map_err(|e| ApiError::from(e.to_string()))?;
+
+    if session_count >= 3 {
+        let avg_start: Option<i64> = sqlx::query_scalar(
+            "SELECT CAST(AVG(((started_at / 60000) + ?) % 1440) AS INTEGER) FROM session WHERE started_at >= ? AND started_at < ?",
+        )
+        .bind(offset_min)
+        .bind(week_start_ms)
+        .bind(week_end_ms)
+        .fetch_one(&state.pool)
+        .await
+        .ok()
+        .flatten();
+
+        let earliest_sched: Option<i64> = sqlx::query_scalar(
+            "SELECT MIN(start_min) FROM schedule_block WHERE template_id = ?",
+        )
+        .bind(template_id)
+        .fetch_one(&state.pool)
+        .await
+        .ok()
+        .flatten();
+
+        if let (Some(avg), Some(sched_start)) = (avg_start, earliest_sched) {
+            if avg > sched_start + 30 {
+                let avg_h = avg / 60;
+                let avg_m = avg % 60;
+                let sched_h = sched_start / 60;
+                let sched_m = sched_start % 60;
+                insights.push(Insight {
+                    kind: "drift".to_string(),
+                    message: format!(
+                        "Your average start this week is {}:{:02} — your schedule starts at {}:{:02}.",
+                        avg_h, avg_m, sched_h, sched_m
+                    ),
+                    severity: "warning".to_string(),
+                });
+            }
+        }
+    }
+
+    // b) Weekend creep
+    let four_weeks_ago_ms = week_start_ms - 4 * 7 * 24 * 60 * 60 * 1000;
+    let weekend_weeks: Vec<String> = sqlx::query_scalar(
+        "SELECT DISTINCT strftime('%Y-%W', datetime(started_at/1000, 'unixepoch', 'localtime'))
+         FROM session
+         WHERE started_at >= ?
+         AND CAST(strftime('%w', datetime(started_at/1000, 'unixepoch', 'localtime')) AS INTEGER) IN (0, 6)",
+    )
+    .bind(four_weeks_ago_ms)
+    .fetch_all(&state.pool)
+    .await
+    .unwrap_or_default();
+
+    if weekend_weeks.len() >= 3 {
+        insights.push(Insight {
+            kind: "weekend".to_string(),
+            message: format!(
+                "You've worked on weekends {} of the last 4 weeks.",
+                weekend_weeks.len()
+            ),
+            severity: "warning".to_string(),
+        });
+    }
+
+    // c) Late night sessions
+    let late_count: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM session
+         WHERE started_at >= ? AND started_at < ?
+         AND ((started_at / 60000 + ?) % 1440) >= 1320",
+    )
+    .bind(week_start_ms)
+    .bind(week_end_ms)
+    .bind(offset_min)
+    .fetch_one(&state.pool)
+    .await
+    .unwrap_or(0);
+
+    if late_count > 0 {
+        insights.push(Insight {
+            kind: "late_night".to_string(),
+            message: format!(
+                "You had {} session{} past 10 PM this week.",
+                late_count,
+                if late_count == 1 { "" } else { "s" }
+            ),
+            severity: "warning".to_string(),
+        });
+    }
+
+    // d) Cramming
+    let mut day_totals: Vec<(String, i64)> = Vec::new();
+    let mut week_total: i64 = 0;
+    for i in 0..7 {
+        let d = week_start + chrono::Duration::days(i);
+        let d_start = Local
+            .from_local_datetime(&d.and_hms_opt(0, 0, 0).ok_or(ApiError::from("bad date"))?)
+            .earliest()
+            .ok_or(ApiError::from("bad tz"))?
+            .timestamp_millis();
+        let d_end = d_start + 24 * 60 * 60 * 1000;
+        let worked = compute_actual_between(&state.pool, d_start, d_end).await.unwrap_or(0);
+        day_totals.push((d.format("%A").to_string(), worked));
+        week_total += worked;
+    }
+
+    if week_total > 0 {
+        for (day_name, day_ms) in &day_totals {
+            if *day_ms > week_total / 2 && *day_ms > 60 * 60 * 1000 {
+                let pct = (*day_ms as f64 / week_total as f64 * 100.0).round() as i64;
+                insights.push(Insight {
+                    kind: "cramming".to_string(),
+                    message: format!("You did {}% of this week's hours on {}.", pct, day_name),
+                    severity: "warning".to_string(),
+                });
+                break;
+            }
+        }
+    }
+
+    // e) Missed days
+    for i in 0..7 {
+        let d = week_start + chrono::Duration::days(i);
+        if d >= today {
+            break;
+        }
+        let weekday = i64::from(d.weekday().num_days_from_sunday());
+        let has_block: bool = sqlx::query_scalar::<_, i64>(
+            "SELECT COUNT(*) FROM schedule_block WHERE template_id = ? AND day_of_week = ?",
+        )
+        .bind(template_id)
+        .bind(weekday)
+        .fetch_one(&state.pool)
+        .await
+        .map(|c| c > 0)
+        .unwrap_or(false);
+
+        let has_target: bool = sqlx::query_scalar::<_, i64>(
+            "SELECT COALESCE(target_min, 0) FROM schedule_day_target WHERE template_id = ? AND day_of_week = ?",
+        )
+        .bind(template_id)
+        .bind(weekday)
+        .fetch_optional(&state.pool)
+        .await
+        .ok()
+        .flatten()
+        .map(|t| t > 0)
+        .unwrap_or(false);
+
+        if !has_block && !has_target {
+            continue;
+        }
+
+        let d_start = Local
+            .from_local_datetime(&d.and_hms_opt(0, 0, 0).ok_or(ApiError::from("bad date"))?)
+            .earliest()
+            .ok_or(ApiError::from("bad tz"))?
+            .timestamp_millis();
+        let d_end = d_start + 24 * 60 * 60 * 1000;
+        let worked = compute_actual_between(&state.pool, d_start, d_end).await.unwrap_or(0);
+
+        if worked < 60_000 {
+            insights.push(Insight {
+                kind: "missed".to_string(),
+                message: format!("You didn't clock in on {}.", day_label(weekday)),
+                severity: "info".to_string(),
+            });
+        }
+    }
+
+    // f) Streak
+    let mut streak = 0i64;
+    let mut check_date = today - chrono::Duration::days(1);
+    loop {
+        let weekday = i64::from(check_date.weekday().num_days_from_sunday());
+        let target_min: i64 = sqlx::query_scalar::<_, Option<i64>>(
+            "SELECT target_min FROM schedule_day_target WHERE template_id = ? AND day_of_week = ?",
+        )
+        .bind(template_id)
+        .bind(weekday)
+        .fetch_optional(&state.pool)
+        .await
+        .ok()
+        .flatten()
+        .flatten()
+        .unwrap_or(0);
+
+        let block_ms: i64 = sqlx::query_scalar(
+            "SELECT COALESCE(SUM(CASE WHEN end_min > start_min THEN (end_min - start_min) * 60000 ELSE (1440 - start_min + end_min) * 60000 END), 0) FROM schedule_block WHERE template_id = ? AND day_of_week = ?",
+        )
+        .bind(template_id)
+        .bind(weekday)
+        .fetch_one(&state.pool)
+        .await
+        .unwrap_or(0);
+
+        let day_target_ms = if target_min > 0 {
+            target_min * 60_000
+        } else {
+            block_ms
+        };
+
+        if day_target_ms == 0 {
+            check_date -= chrono::Duration::days(1);
+            if today.signed_duration_since(check_date).num_days() > 30 {
+                break;
+            }
+            continue;
+        }
+
+        let naive = check_date
+            .and_hms_opt(0, 0, 0)
+            .ok_or(ApiError::from("bad date"))?;
+        let d_start = match Local.from_local_datetime(&naive).earliest() {
+            Some(dt) => dt.timestamp_millis(),
+            None => break,
+        };
+        let d_end = d_start + 24 * 60 * 60 * 1000;
+        let worked = compute_actual_between(&state.pool, d_start, d_end).await.unwrap_or(0);
+
+        if worked >= day_target_ms - 60_000 {
+            streak += 1;
+            check_date -= chrono::Duration::days(1);
+            if today.signed_duration_since(check_date).num_days() > 30 {
+                break;
+            }
+        } else {
+            break;
+        }
+    }
+
+    if streak >= 3 {
+        insights.push(Insight {
+            kind: "streak".to_string(),
+            message: format!("You've followed your schedule for {} days straight!", streak),
+            severity: "positive".to_string(),
+        });
+    }
+
+    Ok(insights)
+}
+
+#[tauri::command]
+pub async fn get_weekly_review(
+    state: tauri::State<'_, AppState>,
+    week_start_day: Option<i64>,
+    week_start: Option<String>,
+) -> Result<WeeklyReview, ApiError> {
+    let wsd = week_start_day.unwrap_or(1);
+    let now = Local::now();
+    let current_week_start = week_start_date_for(now.date_naive(), wsd);
+    let review_week_start = if let Some(ref ws) = week_start {
+        chrono::NaiveDate::parse_from_str(ws, "%Y-%m-%d").map_err(|_| ApiError::from("Invalid date"))?
+    } else {
+        current_week_start - chrono::Duration::days(7)
+    };
+    let review_week_end = review_week_start + chrono::Duration::days(7);
+
+    let week_label = format!(
+        "{} – {}",
+        format_review_calendar_day(review_week_start),
+        format_review_calendar_day(review_week_end - chrono::Duration::days(1))
+    );
+
+    let week_start_ms = Local
+        .from_local_datetime(
+            &review_week_start
+                .and_hms_opt(0, 0, 0)
+                .ok_or_else(|| ApiError::from("Invalid date"))?,
+        )
+        .earliest()
+        .ok_or_else(|| ApiError::from("Invalid timezone date"))?
+        .timestamp_millis();
+    let week_end_ms = Local
+        .from_local_datetime(
+            &review_week_end
+                .and_hms_opt(0, 0, 0)
+                .ok_or_else(|| ApiError::from("Invalid date"))?,
+        )
+        .earliest()
+        .ok_or_else(|| ApiError::from("Invalid timezone date"))?
+        .timestamp_millis();
+
+    let offset_min = i64::from(now.offset().local_minus_utc()) / 60;
+    let template_id = active_template_id(&state.pool).await.unwrap_or(0);
+
+    let block_rows = sqlx::query(
+        "SELECT id, template_id, day_of_week, start_min, end_min, COALESCE(label, 'Work block'), COALESCE(color, '#34D399')
+         FROM schedule_block
+         WHERE template_id = ?",
+    )
+    .bind(template_id)
+    .fetch_all(&state.pool)
+    .await
+    .unwrap_or_default();
+
+    let mut blocks_by_dow: HashMap<i64, Vec<ScheduleBlock>> = HashMap::new();
+    for row in block_rows {
+        let block = ScheduleBlock {
+            id: row.try_get(0).map_err(|e| ApiError::from(e.to_string()))?,
+            template_id: row.try_get(1).map_err(|e| ApiError::from(e.to_string()))?,
+            day_of_week: row.try_get(2).map_err(|e| ApiError::from(e.to_string()))?,
+            start_min: row.try_get(3).map_err(|e| ApiError::from(e.to_string()))?,
+            end_min: row.try_get(4).map_err(|e| ApiError::from(e.to_string()))?,
+            label: row.try_get(5).map_err(|e| ApiError::from(e.to_string()))?,
+            color: row.try_get(6).map_err(|e| ApiError::from(e.to_string()))?,
+        };
+        blocks_by_dow.entry(block.day_of_week).or_default().push(block);
+    }
+    for blocks in blocks_by_dow.values_mut() {
+        blocks.sort_by_key(|b| b.start_min);
+    }
+
+    let mut day_details = Vec::new();
+    let mut days_worked = 0_i64;
+    let mut days_scheduled = 0_i64;
+    let mut total_target_ms = 0_i64;
+    let mut total_actual_ms = 0_i64;
+    let mut on_time_days = 0_i64;
+
+    for i in 0..7 {
+        let day = review_week_start + chrono::Duration::days(i);
+        let day_start = Local
+            .from_local_datetime(
+                &day
+                    .and_hms_opt(0, 0, 0)
+                    .ok_or_else(|| ApiError::from("Invalid date"))?,
+            )
+            .earliest()
+            .ok_or_else(|| ApiError::from("Invalid timezone date"))?
+            .timestamp_millis();
+        let day_end = day_start + 24 * 60 * 60 * 1000;
+
+        let weekday = i64::from(day.weekday().num_days_from_sunday());
+
+        let planned_ms: i64 = sqlx::query(
+            "SELECT COALESCE(SUM(CASE WHEN end_min > start_min THEN (end_min - start_min) * 60000 ELSE (1440 - start_min + end_min) * 60000 END), 0)
+             FROM schedule_block
+             WHERE template_id = ? AND day_of_week = ?",
+        )
+        .bind(template_id)
+        .bind(weekday)
+        .fetch_one(&state.pool)
+        .await
+        .map_err(|e| ApiError::from(e.to_string()))?
+        .try_get(0)
+        .map_err(|e| ApiError::from(e.to_string()))?;
+
+        let day_target_min: i64 = sqlx::query_scalar(
+            "SELECT target_min FROM schedule_day_target WHERE template_id = ? AND day_of_week = ?",
+        )
+        .bind(template_id)
+        .bind(weekday)
+        .fetch_optional(&state.pool)
+        .await
+        .ok()
+        .flatten()
+        .unwrap_or(0);
+
+        let target_ms = if day_target_min > 0 {
+            day_target_min * 60_000
+        } else {
+            planned_ms
+        };
+
+        let actual_ms = compute_actual_between(&state.pool, day_start, day_end)
+            .await
+            .map_err(ApiError::from)?;
+
+        if actual_ms > 60_000 {
+            days_worked += 1;
+        }
+        if target_ms > 0 {
+            days_scheduled += 1;
+        }
+        total_target_ms += target_ms;
+        total_actual_ms += actual_ms;
+
+        let first_started: Option<i64> = sqlx::query_scalar(
+            "SELECT MIN(started_at) FROM session WHERE started_at >= ? AND started_at < ?",
+        )
+        .bind(day_start)
+        .bind(day_end)
+        .fetch_optional(&state.pool)
+        .await
+        .ok()
+        .flatten();
+
+        let first_block_start = blocks_by_dow
+            .get(&weekday)
+            .and_then(|blocks| blocks.iter().map(|b| b.start_min).min());
+
+        let on_time = match (first_started, first_block_start) {
+            (Some(ts), Some(bm)) => {
+                let smin = (ts / 60_000 + offset_min).rem_euclid(1440);
+                (smin - bm).abs() <= 30
+            }
+            _ => false,
+        };
+        if on_time {
+            on_time_days += 1;
+        }
+
+        day_details.push(WeeklyReviewDay {
+            label: day_label(weekday).to_string(),
+            target_ms,
+            actual_ms,
+            on_time,
+        });
+    }
+
+    let avg_start_minute: Option<i64> = sqlx::query_scalar(
+        "SELECT CAST(AVG(((started_at / 60000) + ?) % 1440) AS INTEGER) FROM session WHERE started_at >= ? AND started_at < ?",
+    )
+    .bind(offset_min)
+    .bind(week_start_ms)
+    .bind(week_end_ms)
+    .fetch_one(&state.pool)
+    .await
+    .map_err(|e| ApiError::from(e.to_string()))?;
+
+    let avg_end_minute: Option<i64> = sqlx::query_scalar(
+        "SELECT CAST(AVG(((ended_at / 60000) + ?) % 1440) AS INTEGER) FROM session WHERE ended_at IS NOT NULL AND ended_at >= ? AND ended_at < ?",
+    )
+    .bind(offset_min)
+    .bind(week_start_ms)
+    .bind(week_end_ms)
+    .fetch_one(&state.pool)
+    .await
+    .map_err(|e| ApiError::from(e.to_string()))?;
+
+    let session_starts: Vec<i64> = sqlx::query_scalar(
+        "SELECT started_at FROM session WHERE started_at >= ? AND started_at < ?",
+    )
+    .bind(week_start_ms)
+    .bind(week_end_ms)
+    .fetch_all(&state.pool)
+    .await
+    .unwrap_or_default();
+
+    let mut off_schedule_sessions = 0_i64;
+    for ts in session_starts {
+        let dt = match Local.timestamp_millis_opt(ts) {
+            LocalResult::Single(d) => d,
+            _ => continue,
+        };
+        let weekday = i64::from(dt.weekday().num_days_from_sunday());
+        let minute = i64::from(dt.hour()) * 60 + i64::from(dt.minute());
+        let blocks = blocks_by_dow.get(&weekday).map(|v| v.as_slice()).unwrap_or(&[]);
+        if !minute_in_any_block(minute, blocks) {
+            off_schedule_sessions += 1;
+        }
+    }
+
+    let mut insights = Vec::new();
+
+    let late_count: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM session WHERE started_at >= ? AND started_at < ? AND ((started_at / 60000 + ?) % 1440) >= 1320",
+    )
+    .bind(week_start_ms)
+    .bind(week_end_ms)
+    .bind(offset_min)
+    .fetch_one(&state.pool)
+    .await
+    .unwrap_or(0);
+
+    if late_count > 0 {
+        insights.push(Insight {
+            kind: "late_night".to_string(),
+            message: format!("{} session{} past 10 PM.", late_count, if late_count == 1 { "" } else { "s" }),
+            severity: "warning".to_string(),
+        });
+    }
+
+    let weekend_sessions: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM session WHERE started_at >= ? AND started_at < ? AND CAST(strftime('%w', datetime(started_at/1000, 'unixepoch', 'localtime')) AS INTEGER) IN (0, 6)",
+    )
+    .bind(week_start_ms)
+    .bind(week_end_ms)
+    .fetch_one(&state.pool)
+    .await
+    .unwrap_or(0);
+
+    if weekend_sessions > 0 {
+        insights.push(Insight {
+            kind: "weekend".to_string(),
+            message: format!("{} weekend session{}.", weekend_sessions, if weekend_sessions == 1 { "" } else { "s" }),
+            severity: "warning".to_string(),
+        });
+    }
+
+    if days_worked >= days_scheduled && days_scheduled > 0 {
+        insights.push(Insight {
+            kind: "streak".to_string(),
+            message: format!("Hit target on all {} scheduled days!", days_scheduled),
+            severity: "positive".to_string(),
+        });
+    }
+
+    if total_actual_ms > 0 {
+        for detail in &day_details {
+            if detail.actual_ms > total_actual_ms / 2 && detail.actual_ms > 3_600_000 {
+                let pct = (detail.actual_ms as f64 / total_actual_ms as f64 * 100.0).round() as i64;
+                insights.push(Insight {
+                    kind: "cramming".to_string(),
+                    message: format!("{}% of hours were on {}.", pct, detail.label),
+                    severity: "warning".to_string(),
+                });
+                break;
+            }
+        }
+    }
+
+    Ok(WeeklyReview {
+        week_label,
+        days_worked,
+        days_scheduled,
+        total_target_ms,
+        total_actual_ms,
+        avg_start_minute,
+        avg_end_minute,
+        on_time_days,
+        off_schedule_sessions,
+        day_details,
+        insights,
+    })
+}
+
+#[tauri::command]
+pub async fn get_last_reviewed_week(state: tauri::State<'_, AppState>) -> Result<Option<String>, ApiError> {
+    let value: Option<String> = sqlx::query_scalar("SELECT value FROM app_meta WHERE key = 'last_reviewed_week'")
+        .fetch_optional(&state.pool)
+        .await
+        .map_err(|e| ApiError::from(e.to_string()))?;
+    Ok(value)
+}
+
+#[tauri::command]
+pub async fn set_last_reviewed_week(state: tauri::State<'_, AppState>, week_start: String) -> Result<(), ApiError> {
+    sqlx::query(
+        "INSERT INTO app_meta (key, value) VALUES ('last_reviewed_week', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+    )
+    .bind(&week_start)
+    .execute(&state.pool)
+    .await
+    .map_err(|e| ApiError::from(e.to_string()))?;
+    Ok(())
 }
 
 #[tauri::command]

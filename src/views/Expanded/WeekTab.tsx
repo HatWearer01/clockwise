@@ -1,8 +1,17 @@
 import { useCallback, useEffect, useState } from "react";
-import { apiGetDailyTasks, apiGetStatsSummary, apiGetWeekSummary, apiIsWeekDone, apiMarkWeekDone, apiRolloverDailyTask } from "../../lib/tauri";
+import {
+  apiGetDailyTasks,
+  apiGetStatsSummary,
+  apiGetWeekSummary,
+  apiGetWeeklyReview,
+  apiIsWeekDone,
+  apiMarkWeekDone,
+  apiRolloverDailyTask,
+} from "../../lib/tauri";
+import WeeklyReviewModal from "../../components/WeeklyReview";
 import { useSettingsStore } from "../../store/settings";
 import { useTimerStore } from "../../store/timer";
-import type { DailyTask, StatsSummary, WeekDaySummary } from "../../types";
+import type { DailyTask, StatsSummary, WeekDaySummary, WeeklyReview } from "../../types";
 import {
   formatDecimalHours,
   formatHoursMinutes,
@@ -27,6 +36,7 @@ export default function WeekTab() {
   const [expandedDay, setExpandedDay] = useState<string | null>(null);
   const [dayTasks, setDayTasks] = useState<DailyTask[]>([]);
   const [weekOffset, setWeekOffset] = useState(0);
+  const [review, setReview] = useState<WeeklyReview | null>(null);
 
   const isCurrentWeek = weekOffset === 0;
   const allWeekDays = weekDayDates(weekOffset, wsd);
@@ -85,6 +95,13 @@ export default function WeekTab() {
     } catch { /* ignore */ }
   }, [wsd]);
 
+  async function showReview() {
+    try {
+      const r = await apiGetWeeklyReview(wsd, weekStart);
+      setReview(r);
+    } catch { /* ignore */ }
+  }
+
   useEffect(() => { void loadWeekData(); }, [loadWeekData]);
   useEffect(() => { void loadStats(); }, [loadStats]);
 
@@ -130,6 +147,7 @@ export default function WeekTab() {
 
   return (
     <section className="tab-panel">
+      {review ? <WeeklyReviewModal review={review} onClose={() => setReview(null)} /> : null}
       <div className="week-header">
         <div>
           <div className="row" style={{ gap: 8, alignItems: "baseline" }}>
@@ -157,6 +175,9 @@ export default function WeekTab() {
             onClick={() => setView("history")}
           >
             History
+          </button>
+          <button type="button" className="chip" onClick={() => void showReview()}>
+            Review
           </button>
         </div>
       </div>

@@ -1,12 +1,13 @@
 import { create } from "zustand";
-import { apiActivateTemplate, apiCreateTemplate, apiGetSchedule, apiSaveSchedule } from "../lib/tauri";
-import type { BlockChecklistItem, SaveSchedulePayload, ScheduleBlock, ScheduleTemplate } from "../types";
+import { apiActivateTemplate, apiCreateTemplate, apiGetSchedule, apiSaveDayTargets, apiSaveSchedule } from "../lib/tauri";
+import type { BlockChecklistItem, DayTarget, SaveSchedulePayload, ScheduleBlock, ScheduleTemplate } from "../types";
 
 type ScheduleStore = {
   templates: ScheduleTemplate[];
   activeTemplateId: number | null;
   blocks: ScheduleBlock[];
   checklistItems: BlockChecklistItem[];
+  dayTargets: DayTarget[];
   saving: boolean;
   error: string | null;
   draftTemplateName: string;
@@ -20,6 +21,9 @@ type ScheduleStore = {
   updateBlock: (blockId: number, changes: Partial<ScheduleBlock>) => void;
   deleteBlock: (blockId: number) => void;
   getDayBlocks: (dayOfWeek: number) => ScheduleBlock[];
+  getDayTarget: (dayOfWeek: number) => number;
+  setDayTarget: (dayOfWeek: number, targetMin: number) => void;
+  saveDayTargets: () => Promise<void>;
   addChecklistItem: (blockId: number, text: string) => void;
   removeChecklistItem: (itemId: number) => void;
   save: () => Promise<void>;
@@ -38,6 +42,7 @@ export const useScheduleStore = create<ScheduleStore>((set, get) => ({
   activeTemplateId: null,
   blocks: [],
   checklistItems: [],
+  dayTargets: [],
   saving: false,
   error: null,
   draftTemplateName: "",
@@ -51,6 +56,7 @@ export const useScheduleStore = create<ScheduleStore>((set, get) => ({
         activeTemplateId: payload.active_template_id,
         blocks: payload.blocks,
         checklistItems: payload.checklist_items,
+        dayTargets: payload.day_targets ?? [],
       });
     } catch (error) {
       set({ error: toMessage(error, "Unable to load schedule") });
@@ -122,6 +128,33 @@ export const useScheduleStore = create<ScheduleStore>((set, get) => ({
     return get()
       .blocks.filter((block) => block.day_of_week === dayOfWeek)
       .sort((a, b) => a.start_min - b.start_min);
+  },
+  getDayTarget(dayOfWeek) {
+    const match = get().dayTargets.find((d) => d.day_of_week === dayOfWeek);
+    return match?.target_min ?? 0;
+  },
+  setDayTarget(dayOfWeek, targetMin) {
+    const clamped = Math.max(0, Math.round(targetMin));
+    set((state) => {
+      const rest = state.dayTargets.filter((d) => d.day_of_week !== dayOfWeek);
+      if (clamped === 0) return { dayTargets: rest };
+      return {
+        dayTargets: [...rest, { day_of_week: dayOfWeek, target_min: clamped }].sort((a, b) => a.day_of_week - b.day_of_week),
+      };
+    });
+  },
+  async saveDayTargets() {
+    const activeTemplateId = get().activeTemplateId;
+    if (!activeTemplateId) {
+      set({ error: "No active template selected." });
+      return;
+    }
+    try {
+      set({ error: null });
+      await apiSaveDayTargets(activeTemplateId, get().dayTargets);
+    } catch (error) {
+      set({ error: toMessage(error, "Unable to save day targets") });
+    }
   },
   addChecklistItem(blockId, text) {
     const trimmed = text.trim();
