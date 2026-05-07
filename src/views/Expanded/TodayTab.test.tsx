@@ -41,6 +41,7 @@ describe("TodayTab", () => {
       overnight_session: false,
       target_today_ms: 0,
       off_schedule: false,
+      shift_coverage_ms: 0,
       },
       nowMs: Date.now(),
     });
@@ -66,6 +67,7 @@ describe("TodayTab", () => {
       overnight_session: false,
       target_today_ms: 0,
       off_schedule: false,
+      shift_coverage_ms: 0,
       },
       nowMs: Date.now(),
     });
@@ -89,6 +91,7 @@ describe("TodayTab", () => {
       overnight_session: false,
       target_today_ms: 0,
       off_schedule: false,
+      shift_coverage_ms: 0,
       },
       statusFetchedAt: Date.now(),
       nowMs: Date.now(),
@@ -96,7 +99,7 @@ describe("TodayTab", () => {
 
     render(<TodayTab />);
     expect(screen.getByText("Current session")).toBeInTheDocument();
-    expect(screen.getByText("Worked today")).toBeInTheDocument();
+    expect(screen.getByText("Shift coverage")).toBeInTheDocument();
   });
 
   it("shows Clock in button when not active", () => {
@@ -113,6 +116,7 @@ describe("TodayTab", () => {
       overnight_session: false,
       target_today_ms: 0,
       off_schedule: false,
+      shift_coverage_ms: 0,
       },
       nowMs: Date.now(),
     });
@@ -135,6 +139,7 @@ describe("TodayTab", () => {
       overnight_session: false,
       target_today_ms: 0,
       off_schedule: false,
+      shift_coverage_ms: 0,
       },
       nowMs: Date.now(),
     });

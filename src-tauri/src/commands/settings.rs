@@ -41,6 +41,7 @@ pub struct AppSettings {
     pub time_format: String,
     pub idle_nudge_work_min: i64,
     pub idle_nudge_idle_min: i64,
+    pub accountability_mode: String, // "shift" or "target"
 }
 
 async fn get_bool(state: &AppState, key: &str, default: bool) -> Result<bool, String> {
@@ -108,6 +109,7 @@ async fn build_app_settings(state: &AppState) -> Result<AppSettings, String> {
         time_format: get_string(state, "time_format", "12h").await?,
         idle_nudge_work_min: get_i64(state, "idle_nudge_work_min", 90).await?.clamp(15, 240),
         idle_nudge_idle_min: get_i64(state, "idle_nudge_idle_min", 15).await?.clamp(5, 60),
+        accountability_mode: get_string(state, "accountability_mode", "shift").await?,
     })
 }
 
@@ -231,6 +233,14 @@ pub async fn save_app_settings(
     .execute(&state.pool)
     .await
     .map_err(|e| ApiError::from(e.to_string()))?;
+    sqlx::query(
+        "INSERT INTO settings (key, value) VALUES ('accountability_mode', ?)
+         ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+    )
+    .bind(if settings.accountability_mode == "target" { "target" } else { "shift" })
+    .execute(&state.pool)
+    .await
+    .map_err(|e| ApiError::from(e.to_string()))?;
 
     if let Some(window) = app.get_webview_window("main") {
         let _ = window.set_always_on_top(settings.always_on_top);
@@ -276,6 +286,7 @@ mod tests {
         assert_eq!(settings.time_format, "12h");
         assert_eq!(settings.idle_nudge_work_min, 90);
         assert_eq!(settings.idle_nudge_idle_min, 15);
+        assert_eq!(settings.accountability_mode, "shift");
     }
 
     #[tokio::test]

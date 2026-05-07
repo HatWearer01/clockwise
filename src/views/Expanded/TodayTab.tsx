@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import ClockButton from "../../components/ClockButton";
+import OffScheduleConfirm from "../../components/OffScheduleConfirm";
 import ProgressRing from "../../components/ProgressRing";
 import StatusChip from "../../components/StatusChip";
+import SubtaskPanel from "../../components/SubtaskPanel";
 import {
   blockDurationMs,
   formatDuration,
@@ -18,22 +20,22 @@ import {
 import { useSettingsStore } from "../../store/settings";
 import {
   apiAddDailyTask,
-  apiAddSubtask,
   apiDeleteDailyTask,
-  apiDeleteSubtask,
   apiGetDailyTasks,
   apiGetInsights,
   apiMarkDayDone,
   apiRolloverDailyTask,
   apiToggleDailyTask,
-  apiToggleSubtask,
 } from "../../lib/tauri";
 import type { DailyTask, Insight } from "../../types";
 import { useScheduleStore } from "../../store/schedule";
 import { useTimerStore } from "../../store/timer";
 
+type BellItem = { id: string; message: string; severity: "info" | "warning" | "positive"; source: "insight" | "notification" };
+
+
 export default function TodayTab() {
-  const { status, nowMs, clockIn, clockOut, startBreak, resumeBreak } = useTimerStore();
+  const { status, nowMs, clockIn, clockOut, startBreak, resumeBreak, offSchedulePrompt, setOffSchedulePrompt, notice, actionPrompt } = useTimerStore();
   const { blocks } = useScheduleStore();
   const { appSettings } = useSettingsStore();
   const wsd = appSettings.week_start_day as 0 | 1;
@@ -42,12 +44,24 @@ export default function TodayTab() {
   const isoToday = todayISODate();
   const [tasks, setTasks] = useState<DailyTask[]>([]);
   const [insights, setInsights] = useState<Insight[]>([]);
-  const [dismissedInsights, setDismissedInsights] = useState<Set<string>>(new Set());
+  const [dismissedInsights, setDismissedInsights] = useState<Set<string>>(() => {
+    try {
+      const stored = localStorage.getItem("cw_dismissed_insights");
+      return stored ? new Set(JSON.parse(stored) as string[]) : new Set();
+    } catch { return new Set(); }
+  });
   const [newTaskText, setNewTaskText] = useState("");
   const [rolloverTaskId, setRolloverTaskId] = useState<number | null>(null);
   const [expandedTaskId, setExpandedTaskId] = useState<number | null>(null);
-  const [newSubtaskText, setNewSubtaskText] = useState("");
-  const [offSchedulePrompt, setOffSchedulePrompt] = useState(false);
+  const [showInsightsPanel, setShowInsightsPanel] = useState(false);
+
+  function dismissInsight(kind: string) {
+    setDismissedInsights((prev) => {
+      const next = new Set([...prev, kind]);
+      localStorage.setItem("cw_dismissed_insights", JSON.stringify([...next]));
+      return next;
+    });
+  }
   const inputRef = useRef<HTMLInputElement>(null);
 
   const loadTasks = useCallback(async () => {
@@ -63,10 +77,6 @@ export default function TodayTab() {
     apiGetInsights(wsd).then((r) => setInsights(r ?? [])).catch(() => {});
   }, [wsd]);
 
-  useEffect(() => {
-    if (status?.active_session) setOffSchedulePrompt(false);
-  }, [status?.active_session]);
-
   if (!status) return <p className="muted">Loading today...</p>;
 
   const todayDow = new Date().getDay();
@@ -78,6 +88,9 @@ export default function TodayTab() {
   const scheduleStart = todayBlocks.length > 0 ? todayBlocks[0].start_min : null;
   const scheduleEnd = todayBlocks.length > 0 ? todayBlocks[todayBlocks.length - 1].end_min : null;
 
+  const isShiftMode = appSettings.accountability_mode === "shift";
+  const tasksDone = tasks.filter((t) => t.done).length;
+
   const activeElapsed = status.active_session
     ? nowMs - status.active_session.started_at
     : 0;
@@ -86,6 +99,11 @@ export default function TodayTab() {
   const progress = pct(workedMs, targetMs);
   const progressFrac = targetMs > 0 ? Math.min(1, workedMs / targetMs) : 0;
   const isOvertime = workedMs > targetMs && targetMs > 0;
+
+  const inScheduleNow = isCurrentlyInSchedule(blocks);
+  const liveCoverageMs = useTimerStore.getState().liveShiftCoverageMs(inScheduleNow);
+  const coverageFrac = isShiftMode && plannedMs > 0 ? Math.min(1, liveCoverageMs / plannedMs) : 0;
+  const coveragePct = Math.round(coverageFrac * 100);
 
   let scheduleStatText: string;
   if (scheduleStart !== null && scheduleEnd !== null) {
@@ -113,7 +131,15 @@ export default function TodayTab() {
   async function handleToggle(id: number, done: boolean) {
     try {
       await apiToggleDailyTask(id, done);
-      await loadTasks();
+      const updated = await apiGetDailyTasks(isoToday);
+      setTasks(updated ?? []);
+      if (updated && updated.length > 0 && updated.every((t) => t.done)) {
+        await apiMarkDayDone(true);
+        void useTimerStore.getState().refreshStatus();
+      } else if (!done && status?.day_done) {
+        await apiMarkDayDone(false);
+        void useTimerStore.getState().refreshStatus();
+      }
     } catch { /* ignore */ }
   }
 
@@ -132,31 +158,28 @@ export default function TodayTab() {
     } catch { /* ignore */ }
   }
 
-  async function handleAddSubtask(taskId: number) {
-    const text = newSubtaskText.trim();
-    if (!text) return;
-    try {
-      await apiAddSubtask(taskId, text);
-      setNewSubtaskText("");
-      await loadTasks();
-    } catch { /* ignore */ }
-  }
-
-  async function handleToggleSubtask(id: number, done: boolean) {
-    try {
-      await apiToggleSubtask(id, done);
-      await loadTasks();
-    } catch { /* ignore */ }
-  }
-
-  async function handleDeleteSubtask(id: number) {
-    try {
-      await apiDeleteSubtask(id);
-      await loadTasks();
-    } catch { /* ignore */ }
-  }
-
   const weekDays = weekDayDates(0, wsd).filter((d) => d.date !== isoToday);
+
+  const bellItems: BellItem[] = [];
+  if (notice) {
+    bellItems.push({ id: "notice", message: notice, severity: "info", source: "notification" });
+  }
+  if (actionPrompt) {
+    bellItems.push({ id: `action-${actionPrompt.kind}`, message: actionPrompt.message, severity: "warning", source: "notification" });
+  }
+  if (status.state === "behind_target") {
+    bellItems.push({ id: "behind", message: "You're behind on your daily hour target.", severity: "warning", source: "notification" });
+  }
+  if (status.off_schedule && status.active_session) {
+    bellItems.push({ id: "offsched", message: "Working outside scheduled hours.", severity: "warning", source: "notification" });
+  }
+  for (const i of insights) {
+    bellItems.push({ id: i.kind, message: i.message, severity: i.severity, source: "insight" });
+  }
+
+  const newItems = bellItems.filter((b) => !dismissedInsights.has(b.id));
+  const historyItems = bellItems.filter((b) => dismissedInsights.has(b.id));
+  const badgeCount = newItems.length;
 
   return (
     <section className="tab-panel">
@@ -169,13 +192,77 @@ export default function TodayTab() {
               : stateMessage(status.state, status.next_boundary_ms)}
           </p>
         </div>
-        <StatusChip state={status.state} />
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          {bellItems.length > 0 && (
+            <div className="insight-bell-wrap">
+              <button
+                className={`ghost insight-bell ${showInsightsPanel ? "insight-bell-active" : ""}`}
+                title="Notifications &amp; insights"
+                onClick={() => setShowInsightsPanel(!showInsightsPanel)}
+              >
+                <svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                  <path d="M12 2a1 1 0 0 1 1 1v1.07A7.002 7.002 0 0 1 19 11v3.76l1.71 1.71A1 1 0 0 1 20 18h-4a4 4 0 0 1-8 0H4a1 1 0 0 1-.71-1.53L5 14.76V11a7.002 7.002 0 0 1 6-6.93V3a1 1 0 0 1 1-1zm-2 16a2 2 0 0 0 4 0h-4zm2-12a5 5 0 0 0-5 5v4a1 1 0 0 1-.17.55L5.54 16h12.92l-1.29-1.45A1 1 0 0 1 17 14v-3a5 5 0 0 0-5-5z"/>
+                </svg>
+                {badgeCount > 0 && <span className="insight-bell-badge">{badgeCount}</span>}
+              </button>
+              {showInsightsPanel && (
+                <>
+                  <div className="insights-panel-backdrop" onClick={() => setShowInsightsPanel(false)} />
+                  <div className="insights-panel">
+                    <div className="insights-panel-header">
+                      <strong>Notifications</strong>
+                      <button className="ghost daily-task-btn" onClick={() => setShowInsightsPanel(false)}>×</button>
+                    </div>
+                    {newItems.length > 0 ? (
+                      newItems.map((item) => (
+                        <div key={item.id} className={`insight-card insight-${item.severity}`}>
+                          <span className="insight-icon">
+                            {item.severity === "positive" ? "✓" : item.severity === "warning" ? "!" : "i"}
+                          </span>
+                          <span className="insight-message">{item.message}</span>
+                          <button
+                            type="button"
+                            className="insight-dismiss"
+                            title="Dismiss"
+                            onClick={() => dismissInsight(item.id)}
+                          >
+                            ×
+                          </button>
+                        </div>
+                      ))
+                    ) : (
+                      <p className="muted" style={{ fontSize: "0.8rem", margin: "4px 0" }}>No new notifications.</p>
+                    )}
+                    {historyItems.length > 0 && (
+                      <>
+                        <div className="insights-panel-divider">
+                          <span className="muted" style={{ fontSize: "0.72rem" }}>Dismissed</span>
+                        </div>
+                        {historyItems.map((item) => (
+                          <div key={item.id} className="insight-card insight-dismissed">
+                            <span className="insight-icon">
+                              {item.severity === "positive" ? "✓" : item.severity === "warning" ? "!" : "i"}
+                            </span>
+                            <span className="insight-message">{item.message}</span>
+                          </div>
+                        ))}
+                      </>
+                    )}
+                  </div>
+                </>
+              )}
+            </div>
+          )}
+          <StatusChip state={status.state} />
+        </div>
       </div>
 
       <div className="today-hero">
-        <ProgressRing progress={progressFrac}>
-          <strong>{progress}%</strong>
-          <span className="muted" style={{ fontSize: "0.72rem" }}>done</span>
+        <ProgressRing progress={isShiftMode && plannedMs > 0 ? coverageFrac : progressFrac}>
+          <strong>{isShiftMode && plannedMs > 0 ? coveragePct : progress}%</strong>
+          <span className="muted" style={{ fontSize: "0.72rem" }}>
+            {isShiftMode && plannedMs > 0 ? "covered" : "done"}
+          </span>
         </ProgressRing>
 
         <div className="today-stats-col">
@@ -191,28 +278,46 @@ export default function TodayTab() {
             </div>
           ) : null}
 
-          <div className="today-stat">
-            <span className="today-stat-label">Worked today</span>
-            <span className="today-stat-value">{formatHoursMinutes(workedMs)}</span>
-          </div>
+          {isShiftMode && plannedMs > 0 ? (
+            <>
+              <div className="today-stat">
+                <span className="today-stat-label">Shift coverage</span>
+                <span className="today-stat-value">
+                  {formatHoursMinutes(liveCoverageMs)} / {formatHoursMinutes(plannedMs)}
+                </span>
+              </div>
+              {tasks.length > 0 && (
+                <div className="today-stat">
+                  <span className="today-stat-label">Tasks</span>
+                  <span className="today-stat-value">{tasksDone}/{tasks.length} done</span>
+                </div>
+              )}
+            </>
+          ) : (
+            <>
+              <div className="today-stat">
+                <span className="today-stat-label">Worked today</span>
+                <span className="today-stat-value">{formatHoursMinutes(workedMs)}</span>
+              </div>
+              {targetMs > 0 ? (
+                <div className="today-stat">
+                  <span className="today-stat-label">
+                    {isOvertime ? "Overtime" : "Remaining"}
+                  </span>
+                  <span className="today-stat-value">
+                    {isOvertime
+                      ? `+${formatHoursMinutes(workedMs - targetMs)}`
+                      : formatHoursMinutes(remainingMs)}
+                  </span>
+                </div>
+              ) : null}
+            </>
+          )}
 
           {status.break_today_ms > 0 ? (
             <div className="today-stat">
               <span className="today-stat-label">Break time</span>
               <span className="today-stat-value">{formatHoursMinutes(status.break_today_ms)}</span>
-            </div>
-          ) : null}
-
-          {targetMs > 0 ? (
-            <div className="today-stat">
-              <span className="today-stat-label">
-                {isOvertime ? "Overtime" : "Remaining"}
-              </span>
-              <span className="today-stat-value">
-                {isOvertime
-                  ? `+${formatHoursMinutes(workedMs - targetMs)}`
-                  : formatHoursMinutes(remainingMs)}
-              </span>
             </div>
           ) : null}
 
@@ -225,7 +330,20 @@ export default function TodayTab() {
         </div>
       </div>
 
-      {targetMs > 0 ? (
+      {isShiftMode && plannedMs > 0 ? (
+        <div className="today-progress-bar-wrap">
+          <div className="today-progress-track">
+            <div
+              className="today-progress-fill"
+              style={{ width: `${Math.min(100, coveragePct)}%` }}
+            />
+          </div>
+          <div className="row between" style={{ fontSize: "0.78rem" }}>
+            <span className="muted">{formatHoursMinutes(liveCoverageMs)} covered</span>
+            <span className="muted">{formatHoursMinutes(plannedMs)} shift</span>
+          </div>
+        </div>
+      ) : targetMs > 0 ? (
         <div className="today-progress-bar-wrap">
           <div className="today-progress-track">
             <div
@@ -292,14 +410,11 @@ export default function TodayTab() {
                       <button
                         className={`ghost daily-task-btn ${isExpanded ? "daily-task-btn-active" : ""}`}
                         title="Subtasks"
-                        onClick={() => {
-                          setExpandedTaskId(isExpanded ? null : task.id);
-                          setNewSubtaskText("");
-                        }}
+                        onClick={() => setExpandedTaskId(isExpanded ? null : task.id)}
                       >
                         ⋯
                       </button>
-                      {!task.done && (
+                      {!task.done && !task.recurring_task_id && (
                         <div style={{ position: "relative" }}>
                           <button
                             className="ghost daily-task-btn"
@@ -333,43 +448,7 @@ export default function TodayTab() {
                     </div>
                   </div>
                   {isExpanded && (
-                    <div className="subtask-panel">
-                      {task.subtasks.map((sub) => (
-                        <div key={sub.id} className={`subtask-item ${sub.done ? "subtask-done" : ""}`}>
-                          <label className="subtask-label">
-                            <input
-                              type="checkbox"
-                              checked={sub.done}
-                              onChange={() => void handleToggleSubtask(sub.id, !sub.done)}
-                            />
-                            <span className={sub.done ? "daily-task-text-done" : ""}>{sub.text}</span>
-                          </label>
-                          <button
-                            className="ghost subtask-delete"
-                            title="Remove subtask"
-                            onClick={() => void handleDeleteSubtask(sub.id)}
-                          >
-                            &times;
-                          </button>
-                        </div>
-                      ))}
-                      <form
-                        className="subtask-add"
-                        onSubmit={(e) => { e.preventDefault(); void handleAddSubtask(task.id); }}
-                      >
-                        <input
-                          type="text"
-                          placeholder="Add subtask..."
-                          value={newSubtaskText}
-                          onChange={(e) => setNewSubtaskText(e.currentTarget.value)}
-                          className="subtask-input"
-                          autoFocus
-                        />
-                        <button type="submit" className="chip chip-active chip-sm" disabled={!newSubtaskText.trim()}>
-                          Add
-                        </button>
-                      </form>
-                    </div>
+                    <SubtaskPanel taskId={task.id} subtasks={task.subtasks} onChanged={() => void loadTasks()} />
                   )}
                 </li>
               );
@@ -399,9 +478,7 @@ export default function TodayTab() {
                 <button
                   type="button"
                   className="insight-dismiss"
-                  onClick={() =>
-                    setDismissedInsights((prev) => new Set([...prev, insight.kind]))
-                  }
+                  onClick={() => dismissInsight(insight.kind)}
                 >
                   ×
                 </button>
@@ -410,26 +487,7 @@ export default function TodayTab() {
         </div>
       )}
 
-      {offSchedulePrompt && !status.active_session ? (
-        <div className="off-schedule-confirm" role="dialog" aria-live="polite">
-          <span>You&apos;re clocking in outside your schedule. Continue?</span>
-          <div className="button-group">
-            <button
-              type="button"
-              className="chip chip-active"
-              onClick={() => {
-                void clockIn();
-                setOffSchedulePrompt(false);
-              }}
-            >
-              Yes, clock in
-            </button>
-            <button type="button" className="chip" onClick={() => setOffSchedulePrompt(false)}>
-              Cancel
-            </button>
-          </div>
-        </div>
-      ) : null}
+      {offSchedulePrompt && !status.active_session ? <OffScheduleConfirm /> : null}
 
       <div className="today-actions">
         {status.active_session ? (
@@ -442,6 +500,7 @@ export default function TodayTab() {
         ) : null}
         <ClockButton
           active={Boolean(status.active_session)}
+          offSchedule={!status.active_session && appSettings.accountability_mode === "shift" && todayBlocks.length > 0 && !isCurrentlyInSchedule(blocks)}
           onClick={() => {
             if (status.active_session) {
               void clockOut();

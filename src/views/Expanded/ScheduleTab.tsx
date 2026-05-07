@@ -1,13 +1,17 @@
 import { blockDurationMs, dayName, formatHoursMinutes, parseTimeInput, timeInputValue } from "../../lib/time";
 import { useScheduleStore } from "../../store/schedule";
+import { useSettingsStore } from "../../store/settings";
 import { useTimerStore } from "../../store/timer";
 
-const DAYS = [1, 2, 3, 4, 5, 6, 0]; // Mon-Sun
+const DAYS_MON = [1, 2, 3, 4, 5, 6, 0]; // Mon-Sun
+const DAYS_SUN = [0, 1, 2, 3, 4, 5, 6]; // Sun-Sat
 
 export default function ScheduleTab() {
   const { addBlock, updateBlock, deleteBlock, getDayBlocks, getDayTarget, setDayTarget, saving, save, saveDayTargets } =
     useScheduleStore();
   const { refreshStatus } = useTimerStore();
+  const wsd = useSettingsStore().appSettings.week_start_day;
+  const DAYS = wsd === 0 ? DAYS_SUN : DAYS_MON;
 
   const todayDow = new Date().getDay();
 

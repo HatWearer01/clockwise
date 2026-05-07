@@ -249,11 +249,6 @@ function App() {
           {error}
         </button>
       ) : null}
-      {timerStore.status?.off_schedule && timerStore.status?.active_session ? (
-        <div className="banner banner-warning">
-          You are working outside your scheduled hours.
-        </div>
-      ) : null}
       <div className="view-slot">
         {mode === "compact" ? <Compact /> : <Expanded />}
       </div>

@@ -11,13 +11,13 @@ beforeEach(() => {
 });
 
 const mockWeekSummary = [
-  { day_of_week: 1, label: "Mon", planned_ms: 28_800_000, actual_ms: 25_200_000, target_ms: 0 },
-  { day_of_week: 2, label: "Tue", planned_ms: 28_800_000, actual_ms: 28_800_000, target_ms: 0 },
-  { day_of_week: 3, label: "Wed", planned_ms: 28_800_000, actual_ms: 14_400_000, target_ms: 0 },
-  { day_of_week: 4, label: "Thu", planned_ms: 28_800_000, actual_ms: 0, target_ms: 0 },
-  { day_of_week: 5, label: "Fri", planned_ms: 28_800_000, actual_ms: 0, target_ms: 0 },
-  { day_of_week: 6, label: "Sat", planned_ms: 0, actual_ms: 0, target_ms: 0 },
-  { day_of_week: 0, label: "Sun", planned_ms: 0, actual_ms: 0, target_ms: 0 },
+  { day_of_week: 1, label: "Mon", planned_ms: 28_800_000, actual_ms: 25_200_000, target_ms: 0, shift_coverage_ms: 0 },
+  { day_of_week: 2, label: "Tue", planned_ms: 28_800_000, actual_ms: 28_800_000, target_ms: 0, shift_coverage_ms: 0 },
+  { day_of_week: 3, label: "Wed", planned_ms: 28_800_000, actual_ms: 14_400_000, target_ms: 0, shift_coverage_ms: 0 },
+  { day_of_week: 4, label: "Thu", planned_ms: 28_800_000, actual_ms: 0, target_ms: 0, shift_coverage_ms: 0 },
+  { day_of_week: 5, label: "Fri", planned_ms: 28_800_000, actual_ms: 0, target_ms: 0, shift_coverage_ms: 0 },
+  { day_of_week: 6, label: "Sat", planned_ms: 0, actual_ms: 0, target_ms: 0, shift_coverage_ms: 0 },
+  { day_of_week: 0, label: "Sun", planned_ms: 0, actual_ms: 0, target_ms: 0, shift_coverage_ms: 0 },
 ];
 
 const mockStats = {
@@ -54,6 +54,7 @@ function setupMocks() {
     if (cmd === "get_stats_summary") return Promise.resolve(mockStats);
     if (cmd === "is_week_done") return Promise.resolve(false);
     if (cmd === "get_weekly_review") return Promise.resolve(mockWeeklyReview);
+    if (cmd === "get_tasks_for_week") return Promise.resolve({ days: {} });
     return Promise.resolve(undefined);
   });
 }
@@ -73,8 +74,8 @@ describe("WeekTab", () => {
       expect(screen.getByText("This Week")).toBeInTheDocument();
     });
 
-    expect(screen.getByText("Hours logged")).toBeInTheDocument();
-    expect(screen.getByText(/Days worked/)).toBeInTheDocument();
+    expect(screen.getByText("Shift coverage")).toBeInTheDocument();
+    expect(screen.getByText(/Days present/)).toBeInTheDocument();
   });
 
   it("shows day labels", async () => {

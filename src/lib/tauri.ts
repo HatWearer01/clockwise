@@ -102,14 +102,6 @@ export function apiOpenDataFolder() {
   return invoke<void>("open_data_folder");
 }
 
-export function apiGetSessionChecklist(sessionId: number) {
-  return invoke<number[]>("get_session_checklist", { sessionId });
-}
-
-export function apiToggleChecklistItem(sessionId: number, itemId: number, done: boolean) {
-  return invoke<void>("toggle_checklist_item", { sessionId, itemId, done });
-}
-
 export function apiMarkWeekDone(done: boolean) {
   return invoke<void>("mark_week_done", { done });
 }
@@ -120,10 +112,6 @@ export function apiIsWeekDone() {
 
 export function apiMarkDayDone(done: boolean) {
   return invoke<void>("mark_day_done", { done });
-}
-
-export function apiIsDayDone() {
-  return invoke<boolean>("is_day_done");
 }
 
 export function apiGetDailyTasks(date: string) {

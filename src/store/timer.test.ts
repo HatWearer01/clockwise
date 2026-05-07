@@ -31,6 +31,7 @@ describe("timer store", () => {
     overnight_session: false,
         target_today_ms: 0,
         off_schedule: false,
+        shift_coverage_ms: 0,
         next_boundary_ms: null,
         paused: false,
       };
@@ -73,6 +74,7 @@ describe("timer store", () => {
     overnight_session: false,
           target_today_ms: 0,
           off_schedule: false,
+        shift_coverage_ms: 0,
         }); // get_status (refresh)
 
       await useTimerStore.getState().clockIn();
@@ -106,6 +108,7 @@ describe("timer store", () => {
     overnight_session: false,
           target_today_ms: 0,
           off_schedule: false,
+        shift_coverage_ms: 0,
         },
         nowMs: Date.now(),
       });
@@ -124,6 +127,7 @@ describe("timer store", () => {
     overnight_session: false,
           target_today_ms: 0,
           off_schedule: false,
+        shift_coverage_ms: 0,
         }); // get_status
 
       await useTimerStore.getState().clockOut();
@@ -148,6 +152,7 @@ describe("timer store", () => {
     overnight_session: false,
           target_today_ms: 0,
           off_schedule: false,
+        shift_coverage_ms: 0,
         });
 
       await useTimerStore.getState().startBreak();
@@ -171,6 +176,7 @@ describe("timer store", () => {
     overnight_session: false,
           target_today_ms: 0,
           off_schedule: false,
+        shift_coverage_ms: 0,
         });
 
       await useTimerStore.getState().resumeBreak();
@@ -203,6 +209,7 @@ describe("timer store", () => {
     overnight_session: false,
           target_today_ms: 0,
           off_schedule: false,
+        shift_coverage_ms: 0,
         },
         statusFetchedAt: Date.now(),
         nowMs: Date.now(),
@@ -231,6 +238,7 @@ describe("timer store", () => {
     overnight_session: false,
           target_today_ms: 0,
           off_schedule: false,
+        shift_coverage_ms: 0,
         },
         statusFetchedAt: fetchedAt,
         nowMs: Date.now(),
@@ -255,6 +263,7 @@ describe("timer store", () => {
     overnight_session: false,
           target_today_ms: 0,
           off_schedule: false,
+        shift_coverage_ms: 0,
         },
         statusFetchedAt: fetchedAt,
         nowMs: Date.now(),
@@ -285,6 +294,7 @@ describe("timer store", () => {
     overnight_session: false,
           target_today_ms: 0,
           off_schedule: false,
+        shift_coverage_ms: 0,
         }); // get_status
 
       await useTimerStore.getState().applyPendingRecovery(2000);

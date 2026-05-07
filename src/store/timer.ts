@@ -20,6 +20,7 @@ type TimerStore = {
   pendingRecovery: PendingRecovery | null;
   error: string | null;
   nowMs: number;
+  offSchedulePrompt: boolean;
   load: () => Promise<void>;
   refreshStatus: () => Promise<void>;
   clockIn: () => Promise<void>;
@@ -30,8 +31,10 @@ type TimerStore = {
   clearError: () => void;
   setResumePrompt: (value: boolean) => void;
   setActionPrompt: (prompt: { kind: "clock_in" | "clock_out" | "break"; message: string } | null) => void;
+  setOffSchedulePrompt: (value: boolean) => void;
   applyPendingRecovery: (endedAt: number) => Promise<void>;
   liveWorkedMs: () => number;
+  liveShiftCoverageMs: (inSchedule: boolean) => number;
 };
 
 function toMessage(error: unknown, fallback: string) {
@@ -50,6 +53,7 @@ export const useTimerStore = create<TimerStore>((set, get) => ({
   pendingRecovery: null,
   error: null,
   nowMs: Date.now(),
+  offSchedulePrompt: false,
   async load() {
     try {
       set({ error: null });
@@ -73,7 +77,7 @@ export const useTimerStore = create<TimerStore>((set, get) => ({
   },
   async clockIn() {
     try {
-      set({ error: null });
+      set({ error: null, offSchedulePrompt: false });
       await apiClockIn();
       await get().refreshStatus();
     } catch (error) {
@@ -126,6 +130,9 @@ export const useTimerStore = create<TimerStore>((set, get) => ({
   setActionPrompt(actionPrompt) {
     set({ actionPrompt });
   },
+  setOffSchedulePrompt(offSchedulePrompt) {
+    set({ offSchedulePrompt });
+  },
   async applyPendingRecovery(endedAt) {
     try {
       await apiApplyPendingRecovery(endedAt);
@@ -142,5 +149,13 @@ export const useTimerStore = create<TimerStore>((set, get) => ({
       return status.worked_today_ms + Math.max(0, nowMs - statusFetchedAt);
     }
     return status.worked_today_ms;
+  },
+  liveShiftCoverageMs(inSchedule: boolean) {
+    const { status, statusFetchedAt, nowMs } = get();
+    if (!status) return 0;
+    if (status.active_session && !status.paused && inSchedule) {
+      return status.shift_coverage_ms + Math.max(0, nowMs - statusFetchedAt);
+    }
+    return status.shift_coverage_ms;
   },
 }));

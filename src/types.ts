@@ -28,6 +28,7 @@ export type StatusResponse = {
   overnight_session: boolean;
   target_today_ms: number;
   off_schedule: boolean;
+  shift_coverage_ms: number;
 };
 
 export type DayTarget = {
@@ -68,6 +69,7 @@ export type WeekDaySummary = {
   planned_ms: number;
   actual_ms: number;
   target_ms: number;
+  shift_coverage_ms: number;
 };
 
 export type WeekPoint = {
@@ -97,6 +99,7 @@ export type AppSettings = {
   time_format: "12h" | "24h";
   idle_nudge_work_min: number;
   idle_nudge_idle_min: number;
+  accountability_mode: "shift" | "target";
 };
 
 export type PendingRecovery = {

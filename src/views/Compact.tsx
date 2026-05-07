@@ -1,8 +1,9 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { Menu } from "lucide-react";
 import { motion } from "framer-motion";
 import ClockButton from "../components/ClockButton";
 import Logo from "../components/Logo";
+import OffScheduleConfirm from "../components/OffScheduleConfirm";
 import ProgressRing from "../components/ProgressRing";
 import StatusChip from "../components/StatusChip";
 import {
@@ -11,27 +12,38 @@ import {
   formatHoursMinutes,
   isCurrentlyInSchedule,
   stateMessage,
+  todayISODate,
 } from "../lib/time";
-import { apiMarkDayDone } from "../lib/tauri";
+import { apiGetDailyTasks, apiMarkDayDone } from "../lib/tauri";
 import { useScheduleStore } from "../store/schedule";
 import { useSettingsStore } from "../store/settings";
 import { useTimerStore } from "../store/timer";
+import type { DailyTask } from "../types";
 
 export default function Compact() {
-  const { status, nowMs, clockIn, clockOut, startBreak, resumeBreak } = useTimerStore();
-  const { setMode } = useSettingsStore();
+  const { status, nowMs, clockIn, clockOut, startBreak, resumeBreak, offSchedulePrompt, setOffSchedulePrompt } = useTimerStore();
+  const { setMode, appSettings } = useSettingsStore();
   const { blocks } = useScheduleStore();
+  const isShiftMode = appSettings.accountability_mode === "shift";
 
-  const [offSchedulePrompt, setOffSchedulePrompt] = useState(false);
   const [now, setNow] = useState(new Date());
+  const [tasks, setTasks] = useState<DailyTask[]>([]);
   useEffect(() => {
     const id = setInterval(() => setNow(new Date()), 1000);
     return () => clearInterval(id);
   }, []);
 
+  const isoToday = todayISODate();
+  const loadTasks = useCallback(async () => {
+    try {
+      const fetched = await apiGetDailyTasks(isoToday);
+      setTasks(fetched ?? []);
+    } catch { /* ignore */ }
+  }, [isoToday]);
+
   useEffect(() => {
-    if (status?.active_session) setOffSchedulePrompt(false);
-  }, [status?.active_session]);
+    if (isShiftMode) void loadTasks();
+  }, [isShiftMode, loadTasks]);
 
   if (!status) return <section className="card">Loading...</section>;
 
@@ -54,6 +66,11 @@ export default function Compact() {
   const progressFrac = targetMs > 0 ? Math.min(1, liveWorked / targetMs) : 0;
   const remainingMs = Math.max(0, targetMs - liveWorked);
   const isOver = liveWorked > targetMs && targetMs > 0;
+
+  const inScheduleNow = isCurrentlyInSchedule(blocks);
+  const liveCoverageMs = useTimerStore.getState().liveShiftCoverageMs(inScheduleNow);
+  const coverageFrac = isShiftMode && plannedMs > 0 ? Math.min(1, liveCoverageMs / plannedMs) : 0;
+  const tasksDone = tasks.filter((t) => t.done).length;
 
   return (
     <motion.section
@@ -78,9 +95,11 @@ export default function Compact() {
       </header>
 
       <div className="compact-center">
-        <ProgressRing progress={progressFrac}>
-          <strong>{Math.round(progressFrac * 100)}%</strong>
-          <span className="muted" style={{ fontSize: "0.65rem" }}>{formatHoursMinutes(liveWorked)}</span>
+        <ProgressRing progress={isShiftMode && plannedMs > 0 ? coverageFrac : progressFrac}>
+          <strong>{isShiftMode && plannedMs > 0 ? Math.round(coverageFrac * 100) : Math.round(progressFrac * 100)}%</strong>
+          <span className="muted" style={{ fontSize: "0.65rem" }}>
+            {isShiftMode && plannedMs > 0 ? formatHoursMinutes(liveCoverageMs) : formatHoursMinutes(liveWorked)}
+          </span>
         </ProgressRing>
         <div className="compact-copy">
           <h1>{headline}</h1>
@@ -90,44 +109,36 @@ export default function Compact() {
               : stateMessage(status.state, status.next_boundary_ms)}
           </p>
           <div className="compact-info-row">
-            <span>Worked: <strong>{formatHoursMinutes(liveWorked)}</strong></span>
+            {isShiftMode && plannedMs > 0 ? (
+              <>
+                <span>Coverage: <strong>{formatHoursMinutes(liveCoverageMs)}/{formatHoursMinutes(plannedMs)}</strong></span>
+                {tasks.length > 0 && (
+                  <span>Tasks: <strong>{tasksDone}/{tasks.length}</strong></span>
+                )}
+              </>
+            ) : (
+              <>
+                <span>Worked: <strong>{formatHoursMinutes(liveWorked)}</strong></span>
+                {targetMs > 0 ? (
+                  <span>
+                    {isOver ? "Over: " : "Left: "}
+                    <strong>
+                      {isOver
+                        ? `+${formatHoursMinutes(liveWorked - targetMs)}`
+                        : formatHoursMinutes(remainingMs)}
+                    </strong>
+                  </span>
+                ) : null}
+              </>
+            )}
             {status.break_today_ms > 0 ? (
               <span>Break: <strong>{formatHoursMinutes(status.break_today_ms)}</strong></span>
-            ) : null}
-            {targetMs > 0 ? (
-              <span>
-                {isOver ? "Over: " : "Left: "}
-                <strong>
-                  {isOver
-                    ? `+${formatHoursMinutes(liveWorked - targetMs)}`
-                    : formatHoursMinutes(remainingMs)}
-                </strong>
-              </span>
             ) : null}
           </div>
         </div>
       </div>
 
-      {offSchedulePrompt && !status.active_session ? (
-        <div className="off-schedule-confirm" role="dialog" aria-live="polite">
-          <span>You&apos;re clocking in outside your schedule. Continue?</span>
-          <div className="button-group">
-            <button
-              type="button"
-              className="chip chip-active"
-              onClick={() => {
-                void clockIn();
-                setOffSchedulePrompt(false);
-              }}
-            >
-              Yes, clock in
-            </button>
-            <button type="button" className="chip" onClick={() => setOffSchedulePrompt(false)}>
-              Cancel
-            </button>
-          </div>
-        </div>
-      ) : null}
+      {offSchedulePrompt && !status.active_session ? <OffScheduleConfirm /> : null}
 
       <div className="compact-footer">
         <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
@@ -144,6 +155,7 @@ export default function Compact() {
           ) : null}
           <ClockButton
             active={Boolean(status.active_session)}
+            offSchedule={!status.active_session && useSettingsStore.getState().appSettings.accountability_mode === "shift" && todayBlocks.length > 0 && !isCurrentlyInSchedule(blocks)}
             onClick={() => {
               if (status.active_session) {
                 void clockOut();

@@ -33,6 +33,7 @@ beforeEach(() => {
       overnight_session: false,
       target_today_ms: 0,
       off_schedule: false,
+      shift_coverage_ms: 0,
     },
   });
 });

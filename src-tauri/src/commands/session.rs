@@ -48,6 +48,7 @@ pub struct StatusResponse {
     pub overnight_session: bool,
     pub target_today_ms: i64,
     pub off_schedule: bool,
+    pub shift_coverage_ms: i64,
 }
 
 #[derive(Debug, Serialize)]
@@ -57,6 +58,7 @@ pub struct WeekDaySummary {
     pub planned_ms: i64,
     pub actual_ms: i64,
     pub target_ms: i64,
+    pub shift_coverage_ms: i64,
 }
 
 #[derive(Debug, Serialize)]
@@ -258,6 +260,54 @@ pub async fn compute_actual_between_pub(pool: &SqlitePool, start_ms: i64, end_ms
     compute_actual_between(pool, start_ms, end_ms).await
 }
 
+async fn compute_shift_coverage(pool: &SqlitePool, _day_base_ms: i64, day_start_ms: i64, day_end_ms: i64, block_ranges: &[(i64, i64)]) -> i64 {
+    if block_ranges.is_empty() {
+        return 0;
+    }
+    let now = now_ms();
+    let session_rows = sqlx::query("SELECT started_at, COALESCE(ended_at, ?) AS ended_at, id FROM session WHERE started_at >= ? AND started_at < ?")
+        .bind(now)
+        .bind(day_start_ms)
+        .bind(day_end_ms)
+        .fetch_all(pool)
+        .await
+        .unwrap_or_default();
+
+    let mut coverage: i64 = 0;
+    for row in &session_rows {
+        let s_start: i64 = row.try_get(0).unwrap_or(0);
+        let s_end: i64 = row.try_get(1).unwrap_or(0);
+        let s_id: i64 = row.try_get(2).unwrap_or(0);
+
+        let pause_rows = sqlx::query("SELECT paused_at, COALESCE(resumed_at, ?) AS resumed_at FROM session_pause WHERE session_id = ?")
+            .bind(now)
+            .bind(s_id)
+            .fetch_all(pool)
+            .await
+            .unwrap_or_default();
+
+        for &(bs, be) in block_ranges {
+            let overlap_start = s_start.max(bs);
+            let overlap_end = s_end.min(be);
+            if overlap_start >= overlap_end {
+                continue;
+            }
+            let mut gross = overlap_end - overlap_start;
+            for p_row in &pause_rows {
+                let p_start: i64 = p_row.try_get(0).unwrap_or(0);
+                let p_end: i64 = p_row.try_get(1).unwrap_or(0);
+                let po_start = p_start.max(overlap_start);
+                let po_end = p_end.min(overlap_end);
+                if po_start < po_end {
+                    gross -= po_end - po_start;
+                }
+            }
+            coverage += gross.max(0);
+        }
+    }
+    coverage
+}
+
 #[tauri::command]
 pub async fn clock_in(state: tauri::State<'_, AppState>) -> Result<SessionRecord, ApiError> {
     if active_session(&state.pool).await.map_err(ApiError::from)?.is_some() {
@@ -398,6 +448,14 @@ pub async fn get_status(state: tauri::State<'_, AppState>) -> Result<StatusRespo
     let now_local = Local::now();
     let current_minute = i64::from(now_local.hour()) * 60 + i64::from(now_local.minute());
 
+    let accountability_mode: String = sqlx::query_scalar("SELECT value FROM settings WHERE key = 'accountability_mode'")
+        .fetch_optional(&state.pool)
+        .await
+        .ok()
+        .flatten()
+        .unwrap_or_else(|| "shift".to_string());
+    let target_mode = accountability_mode == "target";
+
     let template_id_for_target = active_template_id(&state.pool).await.unwrap_or(0);
     let day_of_week_today = i64::from(now_local.weekday().num_days_from_sunday());
     let target_min_row: Option<i64> = sqlx::query_scalar(
@@ -499,7 +557,7 @@ pub async fn get_status(state: tauri::State<'_, AppState>) -> Result<StatusRespo
             }
         }
 
-        if !any_block && explicit_target_min > 0 && worked_today_ms < target_today_ms {
+        if !any_block && target_mode && explicit_target_min > 0 && worked_today_ms < target_today_ms {
             ("behind_target".to_string(), None)
         } else if !any_block {
             ("off_day".to_string(), None)
@@ -507,7 +565,7 @@ pub async fn get_status(state: tauri::State<'_, AppState>) -> Result<StatusRespo
             ("in_shift".to_string(), boundary_timestamp(end_min, end_is_tomorrow))
         } else if let Some(start_min) = next_start {
             ("before_shift".to_string(), boundary_timestamp_for_today(start_min))
-        } else if target_today_ms > 0 && worked_today_ms < target_today_ms {
+        } else if target_mode && target_today_ms > 0 && worked_today_ms < target_today_ms {
             ("behind_target".to_string(), None)
         } else {
             ("after_shift".to_string(), None)
@@ -533,6 +591,30 @@ pub async fn get_status(state: tauri::State<'_, AppState>) -> Result<StatusRespo
         .map(|s| s.started_at < start)
         .unwrap_or(false);
 
+    let shift_coverage_ms = {
+        let today_date = now_local.date_naive();
+        let day_base_ms = Local
+            .from_local_datetime(&today_date.and_hms_opt(0, 0, 0).unwrap_or_default())
+            .earliest()
+            .map(|dt| dt.timestamp_millis())
+            .unwrap_or(0);
+
+        let block_ranges: Vec<(i64, i64)> = today_blocks
+            .iter()
+            .map(|b| {
+                let bs = day_base_ms + b.start_min * 60_000;
+                let be = if b.end_min > b.start_min {
+                    day_base_ms + b.end_min * 60_000
+                } else {
+                    day_base_ms + (1440 + b.end_min) * 60_000
+                };
+                (bs, be)
+            })
+            .collect();
+
+        compute_shift_coverage(&state.pool, day_base_ms, start, end, &block_ranges).await
+    };
+
     Ok(StatusResponse {
         active_session,
         worked_today_ms,
@@ -545,6 +627,7 @@ pub async fn get_status(state: tauri::State<'_, AppState>) -> Result<StatusRespo
         overnight_session,
         target_today_ms,
         off_schedule,
+        shift_coverage_ms,
     })
 }
 
@@ -618,12 +701,40 @@ pub async fn get_week_summary(
         let actual_ms = compute_actual_between(&state.pool, day_start, day_end)
             .await
             .map_err(ApiError::from)?;
+
+        let block_rows = sqlx::query(
+            "SELECT start_min, end_min FROM schedule_block WHERE template_id = ? AND day_of_week = ?",
+        )
+        .bind(template_id)
+        .bind(weekday)
+        .fetch_all(&state.pool)
+        .await
+        .unwrap_or_default();
+
+        let block_ranges: Vec<(i64, i64)> = block_rows
+            .iter()
+            .map(|r| {
+                let s: i64 = r.try_get(0).unwrap_or(0);
+                let e: i64 = r.try_get(1).unwrap_or(0);
+                let bs = day_start + s * 60_000;
+                let be = if e > s {
+                    day_start + e * 60_000
+                } else {
+                    day_start + (1440 + e) * 60_000
+                };
+                (bs, be)
+            })
+            .collect();
+
+        let day_coverage = compute_shift_coverage(&state.pool, day_start, day_start, day_end, &block_ranges).await;
+
         rows.push(WeekDaySummary {
             day_of_week: weekday,
             label: day_label(weekday).to_string(),
             planned_ms: effective_planned_ms,
             actual_ms,
             target_ms: day_target_min * 60_000,
+            shift_coverage_ms: day_coverage,
         });
     }
 
@@ -806,49 +917,62 @@ pub async fn get_insights(
     let week_end_ms = week_start_ms + 7 * 24 * 60 * 60 * 1000;
     let offset_min = i64::from(now.offset().local_minus_utc()) / 60;
 
-    // a) Start time drift
-    let session_count: i64 = sqlx::query_scalar(
-        "SELECT COUNT(*) FROM session WHERE started_at >= ? AND started_at < ?",
-    )
-    .bind(week_start_ms)
-    .bind(week_end_ms)
-    .fetch_one(&state.pool)
-    .await
-    .map_err(|e| ApiError::from(e.to_string()))?;
+    // a) Start time drift (per-day: compare each day's first session vs that day's first block)
+    {
+        let mut drift_count = 0_i64;
+        let mut total_drift = 0_i64;
+        for i in 0..7 {
+            let day = week_start + chrono::Duration::days(i);
+            let dow = i64::from(day.weekday().num_days_from_sunday());
+            let day_first_block: Option<i64> = sqlx::query_scalar(
+                "SELECT MIN(start_min) FROM schedule_block WHERE template_id = ? AND day_of_week = ?",
+            )
+            .bind(template_id)
+            .bind(dow)
+            .fetch_one(&state.pool)
+            .await
+            .ok()
+            .flatten();
+            let Some(block_start) = day_first_block else { continue };
 
-    if session_count >= 3 {
-        let avg_start: Option<i64> = sqlx::query_scalar(
-            "SELECT CAST(AVG(((started_at / 60000) + ?) % 1440) AS INTEGER) FROM session WHERE started_at >= ? AND started_at < ?",
-        )
-        .bind(offset_min)
-        .bind(week_start_ms)
-        .bind(week_end_ms)
-        .fetch_one(&state.pool)
-        .await
-        .ok()
-        .flatten();
+            let day_start_ms = Local
+                .from_local_datetime(&day.and_hms_opt(0, 0, 0).unwrap_or_default())
+                .earliest()
+                .map(|dt| dt.timestamp_millis())
+                .unwrap_or(0);
+            let day_end_ms = day_start_ms + 24 * 60 * 60 * 1000;
 
-        let earliest_sched: Option<i64> = sqlx::query_scalar(
-            "SELECT MIN(start_min) FROM schedule_block WHERE template_id = ?",
-        )
-        .bind(template_id)
-        .fetch_one(&state.pool)
-        .await
-        .ok()
-        .flatten();
+            let first_session_min: Option<i64> = sqlx::query_scalar(
+                "SELECT CAST(((MIN(started_at) / 60000) + ?) % 1440 AS INTEGER) FROM session WHERE started_at >= ? AND started_at < ?",
+            )
+            .bind(offset_min)
+            .bind(day_start_ms)
+            .bind(day_end_ms)
+            .fetch_one(&state.pool)
+            .await
+            .ok()
+            .flatten();
 
-        if let (Some(avg), Some(sched_start)) = (avg_start, earliest_sched) {
-            if avg > sched_start + 30 {
-                let avg_h = avg / 60;
-                let avg_m = avg % 60;
-                let sched_h = sched_start / 60;
-                let sched_m = sched_start % 60;
+            if let Some(session_min) = first_session_min {
+                let diff = session_min - block_start;
+                if diff > 0 {
+                    drift_count += 1;
+                    total_drift += diff;
+                }
+            }
+        }
+        if drift_count >= 2 {
+            let avg_drift = total_drift / drift_count;
+            if avg_drift > 30 {
+                let h = avg_drift / 60;
+                let m = avg_drift % 60;
                 insights.push(Insight {
                     kind: "drift".to_string(),
-                    message: format!(
-                        "Your average start this week is {}:{:02} — your schedule starts at {}:{:02}.",
-                        avg_h, avg_m, sched_h, sched_m
-                    ),
+                    message: if h > 0 {
+                        format!("You're starting ~{}h {}m late on average ({} days this week).", h, m, drift_count)
+                    } else {
+                        format!("You're starting ~{}m late on average ({} days this week).", m, drift_count)
+                    },
                     severity: "warning".to_string(),
                 });
             }

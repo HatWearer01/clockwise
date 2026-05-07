@@ -8,7 +8,8 @@ type Props = {
 };
 
 export default function WeeklyReview({ review, onClose }: Props) {
-  const tf = useSettingsStore.getState().appSettings.time_format;
+  const { time_format: tf, accountability_mode } = useSettingsStore.getState().appSettings;
+  const isShiftMode = accountability_mode === "shift";
 
   const targetMet = review.total_actual_ms >= review.total_target_ms && review.total_target_ms > 0;
   const pct = review.total_target_ms > 0
@@ -27,7 +28,7 @@ export default function WeeklyReview({ review, onClose }: Props) {
           <div className="review-grade-circle" data-met={targetMet}>
             {pct}%
           </div>
-          <span>{targetMet ? "Target met!" : "Short of target"}</span>
+          <span>{targetMet ? (isShiftMode ? "Fully covered!" : "Target met!") : (isShiftMode ? `${pct}% shift coverage` : `${pct}% of target completed`)}</span>
         </div>
 
         <div className="review-stats">
@@ -42,14 +43,14 @@ export default function WeeklyReview({ review, onClose }: Props) {
             </strong>
           </div>
           <div className="review-stat">
-            <span className="review-stat-label">Total hours</span>
+            <span className="review-stat-label">{isShiftMode ? "Shift coverage" : "Total hours"}</span>
             <strong>{formatHoursMinutes(review.total_actual_ms)}</strong>
             <span className="muted">
               of
               {" "}
               {formatHoursMinutes(review.total_target_ms)}
               {" "}
-              target
+              {isShiftMode ? "scheduled" : "target"}
             </span>
           </div>
           <div className="review-stat">
@@ -106,7 +107,9 @@ export default function WeeklyReview({ review, onClose }: Props) {
                   />
                 </div>
                 <span className="review-day-hours">
-                  {isOff ? "off" : `${formatHoursMinutes(d.actual_ms)} / ${formatHoursMinutes(d.target_ms)}`}
+                  {isOff ? "off" : isShiftMode
+                    ? `${formatHoursMinutes(d.actual_ms)} / ${formatHoursMinutes(d.target_ms)} covered`
+                    : `${formatHoursMinutes(d.actual_ms)} / ${formatHoursMinutes(d.target_ms)}`}
                 </span>
               </div>
             );

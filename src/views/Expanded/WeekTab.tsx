@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import {
   apiGetDailyTasks,
   apiGetStatsSummary,
+  apiGetTasksForWeek,
   apiGetWeekSummary,
   apiGetWeeklyReview,
   apiIsWeekDone,
@@ -12,6 +13,7 @@ import WeeklyReviewModal from "../../components/WeeklyReview";
 import { useSettingsStore } from "../../store/settings";
 import { useTimerStore } from "../../store/timer";
 import type { DailyTask, StatsSummary, WeekDaySummary, WeeklyReview } from "../../types";
+import WeekNav from "../../components/WeekNav";
 import {
   formatDecimalHours,
   formatHoursMinutes,
@@ -28,6 +30,7 @@ export default function WeekTab() {
   const { appSettings } = useSettingsStore();
   const wsd = appSettings.week_start_day as 0 | 1;
   const tf = appSettings.time_format;
+  const isShiftMode = appSettings.accountability_mode === "shift";
   const [days, setDays] = useState<WeekDaySummary[] | null>(null);
   const [stats, setStats] = useState<StatsSummary | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -37,6 +40,7 @@ export default function WeekTab() {
   const [dayTasks, setDayTasks] = useState<DailyTask[]>([]);
   const [weekOffset, setWeekOffset] = useState(0);
   const [review, setReview] = useState<WeeklyReview | null>(null);
+  const [weekTaskCounts, setWeekTaskCounts] = useState<Record<string, { total: number; done: number }>>({});
 
   const isCurrentWeek = weekOffset === 0;
   const allWeekDays = weekDayDates(weekOffset, wsd);
@@ -106,6 +110,19 @@ export default function WeekTab() {
   useEffect(() => { void loadStats(); }, [loadStats]);
 
   useEffect(() => {
+    if (!isShiftMode) return;
+    apiGetTasksForWeek(weekStart)
+      .then((resp) => {
+        const counts: Record<string, { total: number; done: number }> = {};
+        for (const [date, tasks] of Object.entries(resp.days)) {
+          counts[date] = { total: tasks.length, done: tasks.filter((t) => t.done).length };
+        }
+        setWeekTaskCounts(counts);
+      })
+      .catch(() => {});
+  }, [weekStart, isShiftMode]);
+
+  useEffect(() => {
     setExpandedDay(null);
     setDayTasks([]);
   }, [weekOffset]);
@@ -113,13 +130,14 @@ export default function WeekTab() {
   function navigateToWeekStart(startDate: string) {
     const today = new Date();
     const todayDow = today.getDay();
-    const mondayOffset = todayDow === 0 ? -6 : 1 - todayDow;
-    const thisMonday = new Date(today);
-    thisMonday.setDate(today.getDate() + mondayOffset);
-    thisMonday.setHours(0, 0, 0, 0);
+    const startDay = wsd === 0 ? 0 : 1;
+    const diff = (todayDow - startDay + 7) % 7;
+    const thisWeekAnchor = new Date(today);
+    thisWeekAnchor.setDate(today.getDate() - diff);
+    thisWeekAnchor.setHours(0, 0, 0, 0);
 
     const target = new Date(startDate + "T00:00:00");
-    const diffMs = target.getTime() - thisMonday.getTime();
+    const diffMs = target.getTime() - thisWeekAnchor.getTime();
     const diffWeeks = Math.round(diffMs / (7 * 24 * 60 * 60 * 1000));
 
     setWeekOffset(diffWeeks);
@@ -131,11 +149,17 @@ export default function WeekTab() {
 
   const totalPlanned = days.reduce((s, d) => s + d.planned_ms, 0);
   const totalActual = days.reduce((s, d) => s + d.actual_ms, 0);
+  const totalCoverage = days.reduce((s, d) => s + d.shift_coverage_ms, 0);
   const remainingMs = Math.max(0, totalPlanned - totalActual);
   const daysWorked = days.filter((d) => d.actual_ms > 60_000).length;
+  const daysPresent = days.filter((d) => d.shift_coverage_ms > 60_000).length;
   const daysPlanned = days.filter((d) => d.planned_ms > 0).length;
   const completion = pct(totalActual, totalPlanned);
+  const coveragePct = pct(totalCoverage, totalPlanned);
   const isOver = totalActual > totalPlanned && totalPlanned > 0;
+
+  const weekTaskTotal = Object.values(weekTaskCounts).reduce((s, c) => s + c.total, 0);
+  const weekTaskDone = Object.values(weekTaskCounts).reduce((s, c) => s + c.done, 0);
 
   const todayDow = new Date().getDay();
   const todayWeekIndex = todayDow === 0 ? 6 : todayDow - 1;
@@ -184,73 +208,81 @@ export default function WeekTab() {
 
       {view === "current" ? (
         <>
-          {/* Week navigation */}
-          <div className="tasks-week-nav">
-            <button className="ghost daily-task-btn" onClick={() => setWeekOffset((o) => o - 1)} title="Previous week">
-              ‹
-            </button>
-            <span className="tasks-week-label">
-              {isCurrentWeek ? "Current week" : weekRangeLabel(weekOffset, wsd)}
-            </span>
-            <button
-              className="ghost daily-task-btn"
-              onClick={() => setWeekOffset((o) => o + 1)}
-              title="Next week"
-              disabled={weekOffset >= 0}
-            >
-              ›
-            </button>
-            {!isCurrentWeek && (
-              <button className="chip" style={{ fontSize: "0.72rem", marginLeft: 4 }} onClick={() => setWeekOffset(0)}>
-                Today
-              </button>
-            )}
-          </div>
+          <WeekNav
+            weekOffset={weekOffset}
+            onPrev={() => setWeekOffset((o) => o - 1)}
+            onNext={() => setWeekOffset((o) => o + 1)}
+            onToday={() => setWeekOffset(0)}
+            wsd={wsd}
+            currentLabel="Current week"
+          />
 
           <div className="stats-grid">
-            <article>
-              <span className="today-stat-label">Hours logged</span>
-              <strong>{formatHoursMinutes(totalActual)}</strong>
-              <span className="muted">of {formatHoursMinutes(totalPlanned)} planned</span>
-            </article>
-            <article>
-              <span className="today-stat-label">
-                {weekDone ? "Week complete" : isOver ? "Overtime" : "Still need"}
-              </span>
-              <strong>
-                {weekDone
-                  ? formatHoursMinutes(totalActual)
-                  : isOver
-                    ? `+${formatHoursMinutes(totalActual - totalPlanned)}`
-                    : formatHoursMinutes(remainingMs)}
-              </strong>
-              <span className="muted">
-                {weekDone
-                  ? "done early"
-                  : isOver
-                    ? "over target"
-                    : daysLeft > 0
-                      ? `across ${daysLeft} remaining day${daysLeft === 1 ? "" : "s"}`
-                      : "to hit target"}
-              </span>
-            </article>
-            <article>
-              <span className="today-stat-label">Days worked</span>
-              <strong>
-                {daysWorked} / {daysPlanned}
-              </strong>
-              <span className="muted">{weekDone ? "Week done" : `${completion}% complete`}</span>
-            </article>
+            {isShiftMode ? (
+              <>
+                <article>
+                  <span className="today-stat-label">Shift coverage</span>
+                  <strong>{formatHoursMinutes(totalCoverage)}</strong>
+                  <span className="muted">of {formatHoursMinutes(totalPlanned)} scheduled</span>
+                </article>
+                <article>
+                  <span className="today-stat-label">Tasks</span>
+                  <strong>{weekTaskDone} / {weekTaskTotal}</strong>
+                  <span className="muted">done this week</span>
+                </article>
+                <article>
+                  <span className="today-stat-label">Days present</span>
+                  <strong>{daysPresent} / {daysPlanned}</strong>
+                  <span className="muted">{weekDone ? "Week done" : `${coveragePct}% coverage`}</span>
+                </article>
+              </>
+            ) : (
+              <>
+                <article>
+                  <span className="today-stat-label">Hours logged</span>
+                  <strong>{formatHoursMinutes(totalActual)}</strong>
+                  <span className="muted">of {formatHoursMinutes(totalPlanned)} planned</span>
+                </article>
+                <article>
+                  <span className="today-stat-label">
+                    {weekDone ? "Week complete" : isOver ? "Overtime" : "Still need"}
+                  </span>
+                  <strong>
+                    {weekDone
+                      ? formatHoursMinutes(totalActual)
+                      : isOver
+                        ? `+${formatHoursMinutes(totalActual - totalPlanned)}`
+                        : formatHoursMinutes(remainingMs)}
+                  </strong>
+                  <span className="muted">
+                    {weekDone
+                      ? "done early"
+                      : isOver
+                        ? "over target"
+                        : daysLeft > 0
+                          ? `across ${daysLeft} remaining day${daysLeft === 1 ? "" : "s"}`
+                          : "to hit target"}
+                  </span>
+                </article>
+                <article>
+                  <span className="today-stat-label">Days worked</span>
+                  <strong>{daysWorked} / {daysPlanned}</strong>
+                  <span className="muted">{weekDone ? "Week done" : `${completion}% complete`}</span>
+                </article>
+              </>
+            )}
           </div>
 
           <div className="week-list">
             {days.map((day, idx) => {
-              const progress = pct(day.actual_ms, day.planned_ms);
+              const dayMs = isShiftMode ? day.shift_coverage_ms : day.actual_ms;
+              const progress = pct(dayMs, day.planned_ms);
               const isOff = day.planned_ms === 0;
               const isToday = isCurrentWeek && day.day_of_week === todayDow;
-              const dayOver = day.actual_ms > day.planned_ms && day.planned_ms > 0;
+              const dayOver = dayMs > day.planned_ms && day.planned_ms > 0;
               const dayDate = allWeekDays[idx]?.date ?? "";
               const isExpanded = expandedDay === dayDate;
+              const dtc = weekTaskCounts[dayDate];
 
               return (
                 <div key={day.day_of_week}>
@@ -277,7 +309,9 @@ export default function WeekTab() {
                     <span className="week-row-hours">
                       {isOff
                         ? "off"
-                        : `${formatHoursMinutes(day.actual_ms)} / ${formatHoursMinutes(day.planned_ms)}`}
+                        : isShiftMode
+                          ? `${formatHoursMinutes(day.shift_coverage_ms)} / ${formatHoursMinutes(day.planned_ms)}${dtc ? ` · ${dtc.done}/${dtc.total} tasks` : ""}`
+                          : `${formatHoursMinutes(day.actual_ms)} / ${formatHoursMinutes(day.planned_ms)}`}
                     </span>
                   </div>
                   {isExpanded && (
@@ -299,7 +333,7 @@ export default function WeekTab() {
                                   {task.text}
                                 </span>
                               </span>
-                              {!task.done && dayDate !== isoToday && (
+                              {!task.done && !task.recurring_task_id && dayDate !== isoToday && (
                                 <button
                                   className="chip"
                                   style={{ fontSize: "0.72rem", padding: "1px 6px" }}

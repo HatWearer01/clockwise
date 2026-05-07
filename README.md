@@ -13,17 +13,19 @@ Built with Tauri 2, React 19, and TypeScript. Windows native.
 - **"Done for the day / week" toggles** — mark your day or week as complete early; the entire app reflects this (no more "in shift" reminders or clock-in nudges)
 - **Smart notifications** — configurable reminder interval (1–30 min), repeating clock-in/out nudges via Windows toast + in-app banner, with configurable quiet hours (custom start/end times) and customizable idle nudge thresholds (break reminder after N min, inactivity alert after N min)
 - **Close to tray** — X button hides to system tray; left-click tray icon toggles visibility, right-click for menu
-- **Daily task checklist** — create tasks for any day, check them off, roll over incomplete tasks to other days; standalone Tasks tab plus inline tasks on Today and Week views
+- **Daily task checklist** — create tasks for any day, check them off, roll over incomplete tasks to other days; optional subtasks for granular tracking; standalone Tasks tab plus inline tasks on Today and Week views
 - **Recurring tasks** — set tasks to repeat daily, on weekdays, specific days of the week, weekly, or every N days; instances are auto-created and track weekly completion stats (e.g. "3/5 done this week")
 - **Task history navigation** — browse tasks from any past or future week with prev/next navigation; past weeks are read-only for historical reference
-- **Compact and expanded modes** — compact floating widget with live date/time and key stats, or full dashboard with Today, Tasks, Schedule, Week, and Settings tabs
-- **Weekly stats and history** — progress bars, hours logged vs planned, 8-week history chart with clickable bars; navigate to any past week's full day-by-day breakdown with tasks
+- **Compact and expanded modes** — compact floating widget with live date/time and key stats (shift coverage + tasks in shift mode, worked/left in target mode), or full dashboard with Today, Tasks, Schedule, Week, and Settings tabs
+- **Weekly stats and history** — progress bars, hours logged vs planned, 8-week history chart with clickable bars; navigate to any past week's full day-by-day breakdown with tasks; shift mode shows shift coverage and task counts per day instead of hours worked
 - **Daily hour targets** — set explicit target hours per day alongside or instead of fixed time blocks; supports three modes: fixed (target derived from blocks), flex (target only, no time window), and hybrid (preferred window + explicit target); "behind target" status and post-window nudges when you haven't hit your hours
-- **Off-schedule boundary warnings** — clocking in outside scheduled hours triggers a confirmation prompt; a persistent amber banner shows while working off-schedule; keeps you aware without blocking
-- **Pattern insights** — automatic detection of work patterns: start-time drift, weekend creep, late-night sessions, cramming (one day > 50% of weekly hours), missed scheduled days, and on-schedule streaks; shown as dismissable insight cards on the Today tab
-- **Weekly review** — auto-shows a summary modal on the first app open of each new week; grades the previous week with days worked, target completion %, on-time starts, off-schedule sessions, average start/end times, and pattern insights; also accessible manually via "Review" button on the Week tab
+- **Off-schedule boundary warnings** — clocking in outside scheduled hours triggers a confirmation prompt (shared across compact and expanded views); compact mode shows an amber dot while working off-schedule; clock-in button turns indigo when outside shift hours (shift mode only); keeps you aware without blocking
+- **Notification bell** — unified bell icon on the Today tab aggregates pattern insights and live notifications (behind-target, off-schedule, action prompts) in one place; badge shows count of undismissed items only; panel separates active notifications from dismissed history; dismiss individual items without losing them
+- **Pattern insights** — automatic detection of work patterns: per-day start-time drift (compared against each day's scheduled block, not a global average), weekend creep, late-night sessions, cramming (one day > 50% of weekly hours), missed scheduled days, and on-schedule streaks; fed into the notification bell alongside live alerts
+- **Weekly review** — auto-shows a summary modal on the first app open of each new week; grades the previous week with days worked, target completion %, on-time starts, off-schedule sessions, average start/end times, and pattern insights; also accessible manually via "Review" button on the Week tab; adapts wording in shift mode (shift coverage % instead of target completion)
 - **Crash recovery** — heartbeat file (every 30s) detects unclean shutdowns; on next launch, proposes an end time for the orphaned session, closes any dangling breaks, and caps recovery to prevent future timestamps
-- **Settings** — always-on-top toggle, window opacity slider, week start day (Monday/Sunday), 12h/24h time format, autostart, notification and idle nudge controls with sub-options
+- **Accountability modes** — choose between "shift" (focus on being present during scheduled blocks) and "target" (focus on hitting X hours regardless of when); shift mode shows shift coverage % and task progress instead of hours worked/left across Today, Compact, and Week views; target mode shows traditional worked/remaining/overtime stats; affects clock-in button color, progress ring, stats, and notification behavior
+- **Settings** — always-on-top toggle, window opacity slider, week start day (Monday/Sunday), 12h/24h time format, autostart, notification and idle nudge controls with sub-options, accountability mode (shift/target)
 - **Lock/sleep detection** — detects Windows session lock/unlock and sleep/wake events; pauses tracking context so idle time isn't counted
 
 ## Tech Stack
@@ -107,7 +109,7 @@ Powered by **Vitest** + **React Testing Library** + **jsdom**. The Tauri IPC lay
 | `src/components/*.test.tsx` | ClockButton, ProgressRing, StatusChip — all visual states and props |
 | `src/views/Compact.test.tsx` | Loading state, status display, button visibility per session state |
 | `src/views/Expanded/*.test.tsx` | TodayTab, TasksTab, ScheduleTab, WeekTab, SettingsTab — rendering, interactions, API calls |
-| `src/App.test.tsx` | Full app lifecycle: banners (notice, recovery, resume, action prompt, off-schedule, error), event listeners, weekly review auto-show, mode switching |
+| `src/App.test.tsx` | Full app lifecycle: banners (notice, recovery, resume, action prompt, error), off-schedule banner removal verification, event listeners, weekly review auto-show, mode switching |
 
 ---
 
@@ -191,7 +193,7 @@ npm run smoke
 ```
 clockwise/
 ├── src/                    # React frontend
-│   ├── components/         # Reusable UI components (ClockButton, Logo, ProgressRing, StatusChip, Titlebar, WeeklyReview)
+│   ├── components/         # Reusable UI components (ClockButton, Logo, OffScheduleConfirm, ProgressRing, StatusChip, SubtaskPanel, Titlebar, WeekNav, WeeklyReview)
 │   ├── views/              # Page-level views (Compact, Expanded tabs)
 │   ├── store/              # Zustand state stores (timer, schedule, settings)
 │   ├── lib/                # Utilities (time formatting, Tauri IPC wrappers)

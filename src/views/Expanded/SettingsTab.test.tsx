@@ -20,6 +20,7 @@ const fullSettings = {
   time_format: "12h" as "12h" | "24h",
   idle_nudge_work_min: 90,
   idle_nudge_idle_min: 15,
+  accountability_mode: "shift" as "shift" | "target",
 };
 
 beforeEach(() => {

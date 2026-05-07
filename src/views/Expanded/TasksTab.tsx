@@ -1,20 +1,19 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import SubtaskPanel from "../../components/SubtaskPanel";
 import {
   apiAddDailyTask,
   apiAddRecurringTask,
-  apiAddSubtask,
   apiDeleteDailyTask,
   apiDeleteRecurringTask,
-  apiDeleteSubtask,
   apiGetRecurringTasks,
   apiGetTasksForWeek,
   apiRolloverDailyTask,
   apiToggleDailyTask,
-  apiToggleSubtask,
   apiUpdateDailyTask,
   apiUpdateRecurringTask,
 } from "../../lib/tauri";
-import { todayISODate, weekDayDates, weekRangeLabel } from "../../lib/time";
+import WeekNav from "../../components/WeekNav";
+import { todayISODate, weekDayDates } from "../../lib/time";
 import { useSettingsStore } from "../../store/settings";
 import type { DailyTask, RecurrenceType, RecurringTask, WeekTasksResponse } from "../../types";
 
@@ -46,7 +45,6 @@ export default function TasksTab() {
   const [editingId, setEditingId] = useState<number | null>(null);
   const [editText, setEditText] = useState("");
   const [expandedTaskId, setExpandedTaskId] = useState<number | null>(null);
-  const [newSubtaskText, setNewSubtaskText] = useState("");
   const inputRef = useRef<HTMLInputElement>(null);
 
   const [showRecurring, setShowRecurring] = useState(false);
@@ -135,30 +133,6 @@ export default function TasksTab() {
     } catch { /* ignore */ }
   }
 
-  async function handleAddSubtask(taskId: number) {
-    const text = newSubtaskText.trim();
-    if (!text) return;
-    try {
-      await apiAddSubtask(taskId, text);
-      setNewSubtaskText("");
-      await loadWeek();
-    } catch { /* ignore */ }
-  }
-
-  async function handleToggleSubtask(id: number, done: boolean) {
-    try {
-      await apiToggleSubtask(id, done);
-      await loadWeek();
-    } catch { /* ignore */ }
-  }
-
-  async function handleDeleteSubtask(id: number) {
-    try {
-      await apiDeleteSubtask(id);
-      await loadWeek();
-    } catch { /* ignore */ }
-  }
-
   async function handleAddRecurring() {
     const text = newRecText.trim();
     if (!text) return;
@@ -229,28 +203,13 @@ export default function TasksTab() {
         </button>
       </div>
 
-      {/* Week navigation */}
-      <div className="tasks-week-nav">
-        <button className="ghost daily-task-btn" onClick={() => setWeekOffset((o) => o - 1)} title="Previous week">
-          ‹
-        </button>
-        <span className="tasks-week-label">
-          {isCurrentWeek ? "This week" : weekRangeLabel(weekOffset, wsd)}
-        </span>
-        <button
-          className="ghost daily-task-btn"
-          onClick={() => setWeekOffset((o) => o + 1)}
-          title="Next week"
-          disabled={weekOffset >= 0}
-        >
-          ›
-        </button>
-        {!isCurrentWeek && (
-          <button className="chip" style={{ fontSize: "0.72rem", marginLeft: 4 }} onClick={() => setWeekOffset(0)}>
-            Today
-          </button>
-        )}
-      </div>
+      <WeekNav
+        weekOffset={weekOffset}
+        onPrev={() => setWeekOffset((o) => o - 1)}
+        onNext={() => setWeekOffset((o) => o + 1)}
+        onToday={() => setWeekOffset(0)}
+        wsd={wsd}
+      />
 
       {/* Day picker chips */}
       <div className="tasks-day-picker">
@@ -345,15 +304,12 @@ export default function TasksTab() {
                         <button
                           className={`ghost daily-task-btn ${isExpanded ? "daily-task-btn-active" : ""}`}
                           title="Subtasks"
-                          onClick={() => {
-                            setExpandedTaskId(isExpanded ? null : task.id);
-                            setNewSubtaskText("");
-                          }}
+                          onClick={() => setExpandedTaskId(isExpanded ? null : task.id)}
                         >
                           ⋯
                         </button>
                       )}
-                      {!task.done && editingId !== task.id && (
+                      {!task.done && !task.recurring_task_id && editingId !== task.id && (
                         <div style={{ position: "relative" }}>
                           <button
                             className="ghost daily-task-btn"
@@ -390,43 +346,7 @@ export default function TasksTab() {
                   )}
                 </div>
                 {isExpanded && (
-                  <div className="subtask-panel">
-                    {task.subtasks.map((sub) => (
-                      <div key={sub.id} className={`subtask-item ${sub.done ? "subtask-done" : ""}`}>
-                        <label className="subtask-label">
-                          <input
-                            type="checkbox"
-                            checked={sub.done}
-                            onChange={() => void handleToggleSubtask(sub.id, !sub.done)}
-                          />
-                          <span className={sub.done ? "daily-task-text-done" : ""}>{sub.text}</span>
-                        </label>
-                        <button
-                          className="ghost subtask-delete"
-                          title="Remove subtask"
-                          onClick={() => void handleDeleteSubtask(sub.id)}
-                        >
-                          &times;
-                        </button>
-                      </div>
-                    ))}
-                    <form
-                      className="subtask-add"
-                      onSubmit={(e) => { e.preventDefault(); void handleAddSubtask(task.id); }}
-                    >
-                      <input
-                        type="text"
-                        placeholder="Add subtask..."
-                        value={newSubtaskText}
-                        onChange={(e) => setNewSubtaskText(e.currentTarget.value)}
-                        className="subtask-input"
-                        autoFocus
-                      />
-                      <button type="submit" className="chip chip-active chip-sm" disabled={!newSubtaskText.trim()}>
-                        Add
-                      </button>
-                    </form>
-                  </div>
+                  <SubtaskPanel taskId={task.id} subtasks={task.subtasks} onChanged={() => void loadWeek()} />
                 )}
               </li>
             );

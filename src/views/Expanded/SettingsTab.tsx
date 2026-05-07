@@ -169,7 +169,33 @@ export default function SettingsTab() {
           </div>
         </article>
 
-        {/* 8. Reminder interval */}
+        {/* 8. Accountability mode */}
+        <article className="setting-row">
+          <div>
+            <span>Accountability mode</span>
+            <p className="muted setting-desc">
+              {appSettings.accountability_mode === "target"
+                ? "Tracks daily hour targets and nudges you if you fall behind."
+                : "Only reminds you to clock in/out during scheduled shifts."}
+            </p>
+          </div>
+          <div className="button-group">
+            <button
+              className={appSettings.accountability_mode === "shift" ? "chip chip-active" : "chip"}
+              onClick={() => void setAppSettings({ accountability_mode: "shift" })}
+            >
+              Shift
+            </button>
+            <button
+              className={appSettings.accountability_mode === "target" ? "chip chip-active" : "chip"}
+              onClick={() => void setAppSettings({ accountability_mode: "target" })}
+            >
+              Target
+            </button>
+          </div>
+        </article>
+
+        {/* 9. Reminder interval */}
         <article className="setting-row">
           <div>
             <span>Reminder interval</span>

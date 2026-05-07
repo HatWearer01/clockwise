@@ -23,6 +23,7 @@ beforeEach(() => {
       time_format: "12h",
       idle_nudge_work_min: 90,
       idle_nudge_idle_min: 15,
+      accountability_mode: "shift",
     },
     settingsSaving: false,
   });

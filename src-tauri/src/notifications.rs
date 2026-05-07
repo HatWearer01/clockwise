@@ -209,7 +209,7 @@ async fn check_and_notify(app: &AppHandle, state: &AppState) {
         end_min = Some(end_min.map(|e| e.max(end)).unwrap_or(end));
     }
     // If no blocks exist, we may still need to send behind-target nudges
-    let has_blocks = start_min.is_some() && end_min.is_some();
+    let _has_blocks = start_min.is_some() && end_min.is_some();
 
     let (in_shift, before_shift) = if let (Some(sm), Some(em)) = (start_min, end_min) {
         let is_overnight = sm > em;
@@ -278,8 +278,24 @@ async fn check_and_notify(app: &AppHandle, state: &AppState) {
         }
     }
 
-    // Behind-target nudge: past schedule window but haven't hit daily target
-    if !has_active_session {
+    // Behind-target nudge: only in "target" accountability mode
+    let acct_mode: String = sqlx::query_scalar("SELECT value FROM settings WHERE key = 'accountability_mode'")
+        .fetch_optional(&state.pool)
+        .await
+        .ok()
+        .flatten()
+        .unwrap_or_else(|| "shift".to_string());
+
+    let day_done_key = format!("done_day_{}", now.format("%Y-%m-%d"));
+    let day_done = sqlx::query("SELECT 1 FROM app_meta WHERE key = ?")
+        .bind(&day_done_key)
+        .fetch_optional(&state.pool)
+        .await
+        .ok()
+        .flatten()
+        .is_some();
+
+    if acct_mode == "target" && !has_active_session && !day_done {
         let explicit_target_min: i64 = sqlx::query_scalar(
             "SELECT target_min FROM schedule_day_target WHERE template_id = ? AND day_of_week = ?",
         )
@@ -318,10 +334,16 @@ async fn check_and_notify(app: &AppHandle, state: &AppState) {
                 .await
                 .unwrap_or(0);
 
-            let past_window = if has_blocks {
-                !in_shift && !before_shift
+            // Only nudge AFTER the last block has ended, not before it starts
+            let past_window = if let (Some(sm), Some(em)) = (start_min, end_min) {
+                let is_overnight = sm > em;
+                if is_overnight {
+                    minute >= em && minute < sm
+                } else {
+                    minute >= em
+                }
             } else {
-                true
+                true // no blocks = flex day, always eligible
             };
 
             if past_window && worked_ms < target_ms {

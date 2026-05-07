@@ -46,6 +46,7 @@ beforeEach(() => {
       overnight_session: false,
       target_today_ms: 0,
       off_schedule: false,
+      shift_coverage_ms: 0,
     },
     statusFetchedAt: Date.now(),
     notice: null,
@@ -86,6 +87,7 @@ beforeEach(() => {
       time_format: "12h",
       idle_nudge_work_min: 90,
       idle_nudge_idle_min: 15,
+      accountability_mode: "shift",
     },
     settingsSaving: false,
   });
@@ -119,6 +121,7 @@ describe("App", () => {
       overnight_session: false,
       target_today_ms: 0,
       off_schedule: false,
+      shift_coverage_ms: 0,
       },
       nowMs: Date.now(),
     });
@@ -179,7 +182,7 @@ describe("App", () => {
     expect(screen.getByText("Start break")).toBeInTheDocument();
   });
 
-  it("shows off-schedule banner when clocked in off-schedule", () => {
+  it("does not render redundant off-schedule banner (handled by Compact/TodayTab)", () => {
     useTimerStore.setState({
       status: {
         active_session: { id: 1, started_at: Date.now() - 1000, ended_at: null },
@@ -193,11 +196,12 @@ describe("App", () => {
         overnight_session: false,
         target_today_ms: 0,
         off_schedule: true,
+        shift_coverage_ms: 0,
       },
       nowMs: Date.now(),
     });
     render(<App />);
-    expect(screen.getByText("You are working outside your scheduled hours.")).toBeInTheDocument();
+    expect(screen.queryByText("You are working outside your scheduled hours.")).not.toBeInTheDocument();
   });
 
   it("shows error banner when error is set", async () => {
