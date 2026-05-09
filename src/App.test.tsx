@@ -217,6 +217,7 @@ describe("App", () => {
     render(<App />);
     expect(mockListen).toHaveBeenCalledWith("tray-clock-in", expect.any(Function));
     expect(mockListen).toHaveBeenCalledWith("tray-clock-out", expect.any(Function));
+    expect(mockListen).toHaveBeenCalledWith("tray-toggle-week-done", expect.any(Function));
     expect(mockListen).toHaveBeenCalledWith("session-away", expect.any(Function));
     expect(mockListen).toHaveBeenCalledWith("session-back", expect.any(Function));
     expect(mockListen).toHaveBeenCalledWith("notification-action", expect.any(Function));

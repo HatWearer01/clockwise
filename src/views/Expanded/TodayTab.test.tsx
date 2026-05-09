@@ -99,7 +99,7 @@ describe("TodayTab", () => {
 
     render(<TodayTab />);
     expect(screen.getByText("Current session")).toBeInTheDocument();
-    expect(screen.getByText("Shift coverage")).toBeInTheDocument();
+    expect(screen.getByText("Hours")).toBeInTheDocument();
   });
 
   it("shows Clock in button when not active", () => {

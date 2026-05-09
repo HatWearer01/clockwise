@@ -11,6 +11,7 @@ import {
   formatDuration,
   formatHoursMinutes,
   isCurrentlyInSchedule,
+  shiftProgressFraction,
   stateMessage,
   todayISODate,
 } from "../lib/time";
@@ -69,7 +70,8 @@ export default function Compact() {
 
   const inScheduleNow = isCurrentlyInSchedule(blocks);
   const liveCoverageMs = useTimerStore.getState().liveShiftCoverageMs(inScheduleNow);
-  const coverageFrac = isShiftMode && plannedMs > 0 ? Math.min(1, liveCoverageMs / plannedMs) : 0;
+  const shiftRingFrac =
+    isShiftMode && plannedMs > 0 ? shiftProgressFraction(liveWorked, liveCoverageMs, plannedMs) : progressFrac;
   const tasksDone = tasks.filter((t) => t.done).length;
 
   return (
@@ -95,10 +97,10 @@ export default function Compact() {
       </header>
 
       <div className="compact-center">
-        <ProgressRing progress={isShiftMode && plannedMs > 0 ? coverageFrac : progressFrac}>
-          <strong>{isShiftMode && plannedMs > 0 ? Math.round(coverageFrac * 100) : Math.round(progressFrac * 100)}%</strong>
+        <ProgressRing progress={isShiftMode && plannedMs > 0 ? shiftRingFrac : progressFrac}>
+          <strong>{isShiftMode && plannedMs > 0 ? Math.round(shiftRingFrac * 100) : Math.round(progressFrac * 100)}%</strong>
           <span className="muted" style={{ fontSize: "0.65rem" }}>
-            {isShiftMode && plannedMs > 0 ? formatHoursMinutes(liveCoverageMs) : formatHoursMinutes(liveWorked)}
+            {formatHoursMinutes(liveWorked)}
           </span>
         </ProgressRing>
         <div className="compact-copy">
@@ -111,7 +113,12 @@ export default function Compact() {
           <div className="compact-info-row">
             {isShiftMode && plannedMs > 0 ? (
               <>
-                <span>Coverage: <strong>{formatHoursMinutes(liveCoverageMs)}/{formatHoursMinutes(plannedMs)}</strong></span>
+                <span>
+                  Worked: <strong>{formatHoursMinutes(liveWorked)}/{formatHoursMinutes(plannedMs)}</strong>
+                  {liveCoverageMs < liveWorked ? (
+                    <span className="muted"> ({formatHoursMinutes(liveCoverageMs)} in shift)</span>
+                  ) : null}
+                </span>
                 {tasks.length > 0 && (
                   <span>Tasks: <strong>{tasksDone}/{tasks.length}</strong></span>
                 )}
@@ -168,7 +175,7 @@ export default function Compact() {
               setOffSchedulePrompt(true);
             }}
           />
-          {!status.active_session && targetMs > 0 && (
+          {!status.active_session && (targetMs > 0 || isDayDone) && (
             <button
               className={`done-toggle ${isDayDone ? "done-toggle-active" : ""}`}
               onClick={async () => {

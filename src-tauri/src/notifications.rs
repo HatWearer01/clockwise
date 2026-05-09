@@ -1,11 +1,44 @@
 use chrono::{Datelike, Local, TimeZone, Timelike};
+use serde::Serialize;
 use sqlx::Row;
 use tauri::{AppHandle, Emitter, Manager};
 use tauri_plugin_notification::NotificationExt;
 use windows::Win32::UI::Input::KeyboardAndMouse::{GetLastInputInfo, LASTINPUTINFO};
 use windows::Win32::System::SystemInformation::GetTickCount;
 
+use crate::commands::session::{week_start_date_for, week_start_day_setting, ApiError};
 use crate::state::AppState;
+
+#[derive(Debug, Serialize)]
+pub struct NotificationLogEntry {
+    pub id: i64,
+    pub key: String,
+    pub title: String,
+    pub body: String,
+    pub action_kind: Option<String>,
+    pub created_at: i64,
+}
+
+/// End of today's merged schedule window in local time (`start_min` / `end_min` from blocks, same aggregation as `in_shift`).
+fn shift_end_timestamp_ms(now: chrono::DateTime<Local>, start_min: i64, end_min: i64) -> Option<i64> {
+    let date = now.date_naive();
+    if start_min <= end_min {
+        let naive = date.and_hms_opt(
+            u32::try_from(end_min / 60).ok()?,
+            u32::try_from(end_min % 60).ok()?,
+            0,
+        )?;
+        Local.from_local_datetime(&naive).earliest().map(|dt| dt.timestamp_millis())
+    } else {
+        let next = date + chrono::Duration::days(1);
+        let naive = next.and_hms_opt(
+            u32::try_from(end_min / 60).ok()?,
+            u32::try_from(end_min % 60).ok()?,
+            0,
+        )?;
+        Local.from_local_datetime(&naive).earliest().map(|dt| dt.timestamp_millis())
+    }
+}
 
 fn get_idle_seconds() -> u64 {
     let mut info = LASTINPUTINFO {
@@ -97,6 +130,17 @@ async fn send_reminder(
     .bind(&combined)
     .execute(&state.pool)
     .await;
+
+    let _ = sqlx::query(
+        "INSERT INTO notification_log (key, title, body, action_kind, created_at) VALUES (?, ?, ?, ?, ?)",
+    )
+    .bind(key)
+    .bind(title)
+    .bind(body)
+    .bind(action_kind)
+    .bind(now_ms)
+    .execute(&state.pool)
+    .await;
 }
 
 async fn check_and_notify(app: &AppHandle, state: &AppState) {
@@ -150,8 +194,9 @@ async fn check_and_notify(app: &AppHandle, state: &AppState) {
         }
     }
 
-    let monday = now.date_naive() - chrono::Duration::days(i64::from(now.weekday().num_days_from_monday()));
-    let done_key = format!("done_week_{}", monday.format("%Y-%m-%d"));
+    let wsd = week_start_day_setting(&state.pool).await;
+    let week_anchor = week_start_date_for(now.date_naive(), wsd);
+    let done_key = format!("done_week_{}", week_anchor.format("%Y-%m-%d"));
     let week_done = sqlx::query("SELECT 1 FROM app_meta WHERE key = ?")
         .bind(&done_key)
         .fetch_optional(&state.pool)
@@ -266,14 +311,35 @@ async fn check_and_notify(app: &AppHandle, state: &AppState) {
                 minute >= end_min
             };
             if effective_past {
-                send_reminder(
-                    state, app,
-                    &format!("{}:clock-out", date_key),
-                    "Shift ended",
-                    "Your scheduled shift has ended. Clock out when ready.",
-                    Some("clock_out"),
-                    interval_ms,
-                ).await;
+                let mut skip_clock_out_nudge = false;
+                if let Some(started_at) = sqlx::query_scalar::<_, i64>(
+                    "SELECT started_at FROM session WHERE ended_at IS NULL ORDER BY started_at DESC LIMIT 1",
+                )
+                .fetch_optional(&state.pool)
+                .await
+                .ok()
+                .flatten()
+                {
+                    if let Some(end_ts) = shift_end_timestamp_ms(now, start_min, end_min) {
+                        // Started entirely after the scheduled window (e.g. late makeup) — don't nag "shift ended".
+                        if started_at >= end_ts {
+                            skip_clock_out_nudge = true;
+                            log::debug!(
+                                "[notify] skip clock-out nudge: session started after shift end (started_at={started_at}, shift_end={end_ts})"
+                            );
+                        }
+                    }
+                }
+                if !skip_clock_out_nudge {
+                    send_reminder(
+                        state, app,
+                        &format!("{}:clock-out", date_key),
+                        "Shift ended",
+                        "Your scheduled shift has ended. Clock out when ready.",
+                        Some("clock_out"),
+                        interval_ms,
+                    ).await;
+                }
             }
         }
     }
@@ -485,6 +551,42 @@ pub async fn check_notifications(app: tauri::AppHandle, state: tauri::State<'_, 
     Ok(())
 }
 
+#[tauri::command]
+pub async fn get_notification_history(
+    state: tauri::State<'_, AppState>,
+    offset: Option<i64>,
+    limit: Option<i64>,
+) -> Result<Vec<NotificationLogEntry>, ApiError> {
+    let lim = limit.unwrap_or(50).clamp(1, 200);
+    let off = offset.unwrap_or(0).max(0);
+
+    let rows = sqlx::query(
+        "SELECT id, key, title, body, action_kind, created_at
+         FROM notification_log
+         ORDER BY created_at DESC
+         LIMIT ? OFFSET ?",
+    )
+    .bind(lim)
+    .bind(off)
+    .fetch_all(&state.pool)
+    .await
+    .map_err(|e| ApiError::from(e.to_string()))?;
+
+    let entries = rows
+        .iter()
+        .map(|row| NotificationLogEntry {
+            id: row.try_get(0).unwrap_or(0),
+            key: row.try_get(1).unwrap_or_default(),
+            title: row.try_get(2).unwrap_or_default(),
+            body: row.try_get(3).unwrap_or_default(),
+            action_kind: row.try_get(4).ok(),
+            created_at: row.try_get(5).unwrap_or(0),
+        })
+        .collect();
+
+    Ok(entries)
+}
+
 #[cfg(test)]
 mod tests {
     use crate::test_helpers::test_state;
@@ -614,5 +716,110 @@ mod tests {
             .await
             .unwrap();
         assert!(matches!(val.as_str(), "0" | "false" | "False"));
+    }
+
+    #[test]
+    fn shift_end_timestamp_same_calendar_day() {
+        use chrono::TimeZone;
+        let local = chrono::Local;
+        let now = local.with_ymd_and_hms(2026, 5, 9, 18, 0, 0).unwrap();
+        let end = super::shift_end_timestamp_ms(now, 9 * 60, 17 * 60).unwrap();
+        let expect = local.with_ymd_and_hms(2026, 5, 9, 17, 0, 0).unwrap().timestamp_millis();
+        assert_eq!(end, expect);
+    }
+
+    #[test]
+    fn shift_end_timestamp_overnight_ends_next_morning() {
+        use chrono::TimeZone;
+        let local = chrono::Local;
+        let now = local.with_ymd_and_hms(2026, 5, 9, 23, 0, 0).unwrap();
+        let end = super::shift_end_timestamp_ms(now, 22 * 60 + 30, 6 * 60).unwrap();
+        let expect = local.with_ymd_and_hms(2026, 5, 10, 6, 0, 0).unwrap().timestamp_millis();
+        assert_eq!(end, expect);
+    }
+
+    #[tokio::test]
+    async fn notification_log_insert_and_query() {
+        let state = test_state().await;
+        let now = chrono::Local::now().timestamp_millis();
+
+        sqlx::query(
+            "INSERT INTO notification_log (key, title, body, action_kind, created_at) VALUES (?, ?, ?, ?, ?)",
+        )
+        .bind("2026-05-09:clock-in")
+        .bind("Clock In Reminder")
+        .bind("Time to start your shift.")
+        .bind(Some("clock_in"))
+        .bind(now)
+        .execute(&state.pool)
+        .await
+        .unwrap();
+
+        sqlx::query(
+            "INSERT INTO notification_log (key, title, body, action_kind, created_at) VALUES (?, ?, ?, ?, ?)",
+        )
+        .bind("2026-05-09:clock-out")
+        .bind("Shift Ended")
+        .bind("Your shift has ended.")
+        .bind(None::<String>)
+        .bind(now + 1000)
+        .execute(&state.pool)
+        .await
+        .unwrap();
+
+        let rows: Vec<(i64, String, String, String, Option<String>, i64)> = sqlx::query_as(
+            "SELECT id, key, title, body, action_kind, created_at FROM notification_log ORDER BY created_at DESC",
+        )
+        .fetch_all(&state.pool)
+        .await
+        .unwrap();
+
+        assert_eq!(rows.len(), 2);
+        assert_eq!(rows[0].2, "Shift Ended");
+        assert_eq!(rows[1].2, "Clock In Reminder");
+        assert_eq!(rows[1].4, Some("clock_in".to_string()));
+        assert!(rows[0].4.is_none());
+    }
+
+    #[tokio::test]
+    async fn notification_log_pagination() {
+        let state = test_state().await;
+        let base = chrono::Local::now().timestamp_millis();
+
+        for i in 0..5 {
+            sqlx::query(
+                "INSERT INTO notification_log (key, title, body, action_kind, created_at) VALUES (?, ?, ?, NULL, ?)",
+            )
+            .bind(format!("key-{i}"))
+            .bind(format!("Title {i}"))
+            .bind(format!("Body {i}"))
+            .bind(base + i * 1000)
+            .execute(&state.pool)
+            .await
+            .unwrap();
+        }
+
+        let page1: Vec<(i64, String)> = sqlx::query_as(
+            "SELECT id, title FROM notification_log ORDER BY created_at DESC LIMIT ? OFFSET ?",
+        )
+        .bind(2i64)
+        .bind(0i64)
+        .fetch_all(&state.pool)
+        .await
+        .unwrap();
+        assert_eq!(page1.len(), 2);
+        assert_eq!(page1[0].1, "Title 4");
+        assert_eq!(page1[1].1, "Title 3");
+
+        let page2: Vec<(i64, String)> = sqlx::query_as(
+            "SELECT id, title FROM notification_log ORDER BY created_at DESC LIMIT ? OFFSET ?",
+        )
+        .bind(2i64)
+        .bind(2i64)
+        .fetch_all(&state.pool)
+        .await
+        .unwrap();
+        assert_eq!(page2.len(), 2);
+        assert_eq!(page2[0].1, "Title 2");
     }
 }

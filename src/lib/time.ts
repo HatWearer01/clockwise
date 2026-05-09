@@ -137,6 +137,12 @@ export function pct(actual: number, planned: number): number {
   return Math.min(100, Math.round((actual / planned) * 100));
 }
 
+/** Shift-mode ring/bar: count time toward planned shift length, not only overlap with scheduled blocks (late / off-window work still fills progress). */
+export function shiftProgressFraction(workedMs: number, coverageMs: number, plannedMs: number): number {
+  if (plannedMs <= 0) return 0;
+  return Math.min(1, Math.max(workedMs / plannedMs, coverageMs / plannedMs));
+}
+
 export function stateLabel(state: StatusState): string {
   if (state === "on_clock") return "Working";
   if (state === "on_break") return "On break";

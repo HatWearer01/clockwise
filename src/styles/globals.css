@@ -69,9 +69,9 @@
   top: calc(100% + 6px);
   right: 0;
   z-index: 100;
-  width: 280px;
-  max-height: 320px;
-  overflow-y: auto;
+  width: 300px;
+  max-height: 400px;
+  overflow: hidden;
   background: rgba(26, 26, 34, 0.98);
   border: 1px solid rgba(255, 255, 255, 0.12);
   border-radius: 10px;
@@ -189,6 +189,139 @@
 .insight-positive .insight-icon {
   background: rgba(52, 211, 153, 0.25);
   color: #34d399;
+}
+
+/* Inline insights banner (between progress bar and tasks) */
+.insights-inline-banner {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-bottom: 8px;
+}
+.insight-inline-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  border-radius: 8px;
+  font-size: 0.82rem;
+  border: 1px solid transparent;
+}
+.insight-more-badge {
+  flex-shrink: 0;
+  background: rgba(255, 255, 255, 0.1);
+  border: none;
+  color: inherit;
+  font-size: 0.72rem;
+  padding: 2px 6px;
+  border-radius: 8px;
+  cursor: pointer;
+  opacity: 0.7;
+}
+:root[data-theme="light"] .insight-more-badge {
+  background: rgba(0, 0, 0, 0.06);
+}
+.insight-more-badge:hover {
+  opacity: 1;
+}
+.insight-collapse-btn {
+  align-self: flex-start;
+  background: none;
+  border: none;
+  color: inherit;
+  font-size: 0.72rem;
+  opacity: 0.5;
+  cursor: pointer;
+  padding: 2px 0;
+}
+.insight-collapse-btn:hover {
+  opacity: 0.8;
+}
+
+/* Bell panel tab strip */
+.bell-tab-strip {
+  display: flex;
+  gap: 2px;
+  margin-bottom: 6px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  padding-bottom: 4px;
+}
+:root[data-theme="light"] .bell-tab-strip {
+  border-bottom-color: rgba(0, 0, 0, 0.08);
+}
+.bell-tab {
+  background: none;
+  border: none;
+  color: inherit;
+  font-size: 0.78rem;
+  padding: 4px 10px;
+  border-radius: 6px;
+  cursor: pointer;
+  opacity: 0.5;
+  transition: opacity 0.15s, background 0.15s;
+}
+.bell-tab:hover {
+  opacity: 0.8;
+  background: rgba(255, 255, 255, 0.05);
+}
+:root[data-theme="light"] .bell-tab:hover {
+  background: rgba(0, 0, 0, 0.04);
+}
+.bell-tab-active {
+  opacity: 1;
+  background: rgba(255, 255, 255, 0.08);
+  font-weight: 600;
+}
+:root[data-theme="light"] .bell-tab-active {
+  background: rgba(0, 0, 0, 0.06);
+}
+.bell-tab-content {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+/* History scrollable list */
+.bell-history-scroll {
+  max-height: 260px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.history-date-header {
+  font-size: 0.72rem;
+  font-weight: 600;
+  opacity: 0.5;
+  padding: 6px 0 2px;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+.history-date-header:first-child {
+  padding-top: 0;
+}
+.history-entry {
+  padding: 6px 8px;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.03);
+  margin-bottom: 2px;
+}
+:root[data-theme="light"] .history-entry {
+  background: rgba(0, 0, 0, 0.03);
+}
+.history-entry-title {
+  font-size: 0.8rem;
+  font-weight: 600;
+}
+.history-entry-body {
+  font-size: 0.75rem;
+  opacity: 0.7;
+  margin-top: 1px;
+}
+.history-entry-time {
+  font-size: 0.68rem;
+  opacity: 0.4;
+  margin-top: 2px;
 }
 
 /* Weekly Review Modal */

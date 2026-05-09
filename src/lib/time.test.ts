@@ -12,6 +12,7 @@ import {
   parseTimeInput,
   weekDayDates,
   pct,
+  shiftProgressFraction,
   stateLabel,
   stateMessage,
 } from "./time";
@@ -243,6 +244,28 @@ describe("pct", () => {
     expect(pct(50, 100)).toBe(50);
     expect(pct(75, 100)).toBe(75);
     expect(pct(1, 3)).toBe(33);
+  });
+});
+
+describe("shiftProgressFraction", () => {
+  it("returns 0 when planned is 0", () => {
+    expect(shiftProgressFraction(3600_000, 0, 0)).toBe(0);
+  });
+
+  it("uses worked time when coverage is zero (late / off-window work)", () => {
+    const planned = 8 * 3600_000;
+    expect(shiftProgressFraction(1.5 * 3600_000, 0, planned)).toBeCloseTo(1.5 / 8, 5);
+  });
+
+  it("uses whichever is higher between worked and coverage vs planned", () => {
+    const planned = 8 * 3600_000;
+    expect(shiftProgressFraction(4 * 3600_000, 6 * 3600_000, planned)).toBeCloseTo(6 / 8, 5);
+    expect(shiftProgressFraction(7 * 3600_000, 4 * 3600_000, planned)).toBeCloseTo(7 / 8, 5);
+  });
+
+  it("caps at 100% of planned", () => {
+    const planned = 8 * 3600_000;
+    expect(shiftProgressFraction(10 * 3600_000, 10 * 3600_000, planned)).toBe(1);
   });
 });
 

@@ -4,6 +4,7 @@ import type {
   DailyTask,
   DayTarget,
   Insight,
+  NotificationLogEntry,
   PendingRecovery,
   RecurrenceType,
   RecurringTask,
@@ -96,6 +97,13 @@ export function apiSaveAppSettings(settings: AppSettings) {
 
 export function apiCheckNotifications() {
   return invoke<void>("check_notifications");
+}
+
+export function apiGetNotificationHistory(offset?: number, limit?: number) {
+  return invoke<NotificationLogEntry[]>("get_notification_history", {
+    offset: offset ?? null,
+    limit: limit ?? null,
+  });
 }
 
 export function apiOpenDataFolder() {

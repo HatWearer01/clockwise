@@ -12,6 +12,7 @@ import {
   formatShortTime,
   isCurrentlyInSchedule,
   pct,
+  shiftProgressFraction,
   stateMessage,
   todayDateString,
   todayISODate,
@@ -23,11 +24,12 @@ import {
   apiDeleteDailyTask,
   apiGetDailyTasks,
   apiGetInsights,
+  apiGetNotificationHistory,
   apiMarkDayDone,
   apiRolloverDailyTask,
   apiToggleDailyTask,
 } from "../../lib/tauri";
-import type { DailyTask, Insight } from "../../types";
+import type { DailyTask, Insight, NotificationLogEntry } from "../../types";
 import { useScheduleStore } from "../../store/schedule";
 import { useTimerStore } from "../../store/timer";
 
@@ -54,6 +56,13 @@ export default function TodayTab() {
   const [rolloverTaskId, setRolloverTaskId] = useState<number | null>(null);
   const [expandedTaskId, setExpandedTaskId] = useState<number | null>(null);
   const [showInsightsPanel, setShowInsightsPanel] = useState(false);
+  const [bellTab, setBellTab] = useState<"active" | "history">("active");
+  const [historyEntries, setHistoryEntries] = useState<NotificationLogEntry[]>([]);
+  const [historyOffset, setHistoryOffset] = useState(0);
+  const [historyHasMore, setHistoryHasMore] = useState(true);
+  const [historyLoading, setHistoryLoading] = useState(false);
+  const [insightsBannerExpanded, setInsightsBannerExpanded] = useState(false);
+  const historyScrollRef = useRef<HTMLDivElement>(null);
 
   function dismissInsight(kind: string) {
     setDismissedInsights((prev) => {
@@ -62,6 +71,34 @@ export default function TodayTab() {
       return next;
     });
   }
+
+  const PAGE_SIZE = 50;
+  async function loadHistory(reset = false) {
+    if (historyLoading) return;
+    setHistoryLoading(true);
+    try {
+      const off = reset ? 0 : historyOffset;
+      const entries = await apiGetNotificationHistory(off, PAGE_SIZE);
+      if (reset) {
+        setHistoryEntries(entries ?? []);
+        setHistoryOffset(PAGE_SIZE);
+      } else {
+        setHistoryEntries((prev) => [...prev, ...(entries ?? [])]);
+        setHistoryOffset(off + PAGE_SIZE);
+      }
+      setHistoryHasMore((entries ?? []).length >= PAGE_SIZE);
+    } catch { /* ignore */ }
+    setHistoryLoading(false);
+  }
+
+  function handleHistoryScroll() {
+    const el = historyScrollRef.current;
+    if (!el || !historyHasMore || historyLoading) return;
+    if (el.scrollTop + el.clientHeight >= el.scrollHeight - 40) {
+      void loadHistory();
+    }
+  }
+
   const inputRef = useRef<HTMLInputElement>(null);
 
   const loadTasks = useCallback(async () => {
@@ -102,8 +139,9 @@ export default function TodayTab() {
 
   const inScheduleNow = isCurrentlyInSchedule(blocks);
   const liveCoverageMs = useTimerStore.getState().liveShiftCoverageMs(inScheduleNow);
-  const coverageFrac = isShiftMode && plannedMs > 0 ? Math.min(1, liveCoverageMs / plannedMs) : 0;
-  const coveragePct = Math.round(coverageFrac * 100);
+  const shiftRingFrac =
+    isShiftMode && plannedMs > 0 ? shiftProgressFraction(workedMs, liveCoverageMs, plannedMs) : progressFrac;
+  const shiftRingPct = Math.round(shiftRingFrac * 100);
 
   let scheduleStatText: string;
   if (scheduleStart !== null && scheduleEnd !== null) {
@@ -181,6 +219,9 @@ export default function TodayTab() {
   const historyItems = bellItems.filter((b) => dismissedInsights.has(b.id));
   const badgeCount = newItems.length;
 
+  const todayDateStr = new Date(nowMs).toLocaleDateString();
+  const yesterdayDateStr = new Date(nowMs - 86400000).toLocaleDateString();
+
   return (
     <section className="tab-panel">
       <div className="today-header">
@@ -193,75 +234,140 @@ export default function TodayTab() {
           </p>
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-          {bellItems.length > 0 && (
-            <div className="insight-bell-wrap">
-              <button
-                className={`ghost insight-bell ${showInsightsPanel ? "insight-bell-active" : ""}`}
-                title="Notifications &amp; insights"
-                onClick={() => setShowInsightsPanel(!showInsightsPanel)}
-              >
-                <svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
-                  <path d="M12 2a1 1 0 0 1 1 1v1.07A7.002 7.002 0 0 1 19 11v3.76l1.71 1.71A1 1 0 0 1 20 18h-4a4 4 0 0 1-8 0H4a1 1 0 0 1-.71-1.53L5 14.76V11a7.002 7.002 0 0 1 6-6.93V3a1 1 0 0 1 1-1zm-2 16a2 2 0 0 0 4 0h-4zm2-12a5 5 0 0 0-5 5v4a1 1 0 0 1-.17.55L5.54 16h12.92l-1.29-1.45A1 1 0 0 1 17 14v-3a5 5 0 0 0-5-5z"/>
-                </svg>
-                {badgeCount > 0 && <span className="insight-bell-badge">{badgeCount}</span>}
-              </button>
-              {showInsightsPanel && (
-                <>
-                  <div className="insights-panel-backdrop" onClick={() => setShowInsightsPanel(false)} />
-                  <div className="insights-panel">
-                    <div className="insights-panel-header">
-                      <strong>Notifications</strong>
-                      <button className="ghost daily-task-btn" onClick={() => setShowInsightsPanel(false)}>×</button>
-                    </div>
-                    {newItems.length > 0 ? (
-                      newItems.map((item) => (
-                        <div key={item.id} className={`insight-card insight-${item.severity}`}>
-                          <span className="insight-icon">
-                            {item.severity === "positive" ? "✓" : item.severity === "warning" ? "!" : "i"}
-                          </span>
-                          <span className="insight-message">{item.message}</span>
-                          <button
-                            type="button"
-                            className="insight-dismiss"
-                            title="Dismiss"
-                            onClick={() => dismissInsight(item.id)}
-                          >
-                            ×
-                          </button>
-                        </div>
-                      ))
-                    ) : (
-                      <p className="muted" style={{ fontSize: "0.8rem", margin: "4px 0" }}>No new notifications.</p>
-                    )}
-                    {historyItems.length > 0 && (
-                      <>
-                        <div className="insights-panel-divider">
-                          <span className="muted" style={{ fontSize: "0.72rem" }}>Dismissed</span>
-                        </div>
-                        {historyItems.map((item) => (
-                          <div key={item.id} className="insight-card insight-dismissed">
+          <div className="insight-bell-wrap">
+            <button
+              className={`ghost insight-bell ${showInsightsPanel ? "insight-bell-active" : ""}`}
+              title="Notifications &amp; insights"
+              onClick={() => {
+                const opening = !showInsightsPanel;
+                setShowInsightsPanel(opening);
+                if (opening && bellTab === "history" && historyEntries.length === 0) {
+                  void loadHistory(true);
+                }
+              }}
+            >
+              <svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                <path d="M12 2a1 1 0 0 1 1 1v1.07A7.002 7.002 0 0 1 19 11v3.76l1.71 1.71A1 1 0 0 1 20 18h-4a4 4 0 0 1-8 0H4a1 1 0 0 1-.71-1.53L5 14.76V11a7.002 7.002 0 0 1 6-6.93V3a1 1 0 0 1 1-1zm-2 16a2 2 0 0 0 4 0h-4zm2-12a5 5 0 0 0-5 5v4a1 1 0 0 1-.17.55L5.54 16h12.92l-1.29-1.45A1 1 0 0 1 17 14v-3a5 5 0 0 0-5-5z"/>
+              </svg>
+              {badgeCount > 0 && <span className="insight-bell-badge">{badgeCount}</span>}
+            </button>
+            {showInsightsPanel && (
+              <>
+                <div className="insights-panel-backdrop" onClick={() => setShowInsightsPanel(false)} />
+                <div className="insights-panel">
+                  <div className="insights-panel-header">
+                    <strong>Notifications</strong>
+                    <button className="ghost daily-task-btn" onClick={() => setShowInsightsPanel(false)}>×</button>
+                  </div>
+                  <div className="bell-tab-strip">
+                    <button
+                      className={`bell-tab ${bellTab === "active" ? "bell-tab-active" : ""}`}
+                      onClick={() => setBellTab("active")}
+                    >
+                      Active{badgeCount > 0 ? ` (${badgeCount})` : ""}
+                    </button>
+                    <button
+                      className={`bell-tab ${bellTab === "history" ? "bell-tab-active" : ""}`}
+                      onClick={() => {
+                        setBellTab("history");
+                        if (historyEntries.length === 0) void loadHistory(true);
+                      }}
+                    >
+                      History
+                    </button>
+                  </div>
+                  {bellTab === "active" ? (
+                    <div className="bell-tab-content">
+                      {newItems.length > 0 ? (
+                        newItems.map((item) => (
+                          <div key={item.id} className={`insight-card insight-${item.severity}`}>
                             <span className="insight-icon">
                               {item.severity === "positive" ? "✓" : item.severity === "warning" ? "!" : "i"}
                             </span>
                             <span className="insight-message">{item.message}</span>
+                            <button
+                              type="button"
+                              className="insight-dismiss"
+                              title="Dismiss"
+                              onClick={() => dismissInsight(item.id)}
+                            >
+                              ×
+                            </button>
                           </div>
-                        ))}
-                      </>
-                    )}
-                  </div>
-                </>
-              )}
-            </div>
-          )}
+                        ))
+                      ) : (
+                        <p className="muted" style={{ fontSize: "0.8rem", margin: "4px 0" }}>No new notifications.</p>
+                      )}
+                      {historyItems.length > 0 && (
+                        <>
+                          <div className="insights-panel-divider">
+                            <span className="muted" style={{ fontSize: "0.72rem" }}>Dismissed</span>
+                          </div>
+                          {historyItems.map((item) => (
+                            <div key={item.id} className="insight-card insight-dismissed">
+                              <span className="insight-icon">
+                                {item.severity === "positive" ? "✓" : item.severity === "warning" ? "!" : "i"}
+                              </span>
+                              <span className="insight-message">{item.message}</span>
+                            </div>
+                          ))}
+                        </>
+                      )}
+                    </div>
+                  ) : (
+                    <div
+                      className="bell-history-scroll"
+                      ref={historyScrollRef}
+                      onScroll={handleHistoryScroll}
+                    >
+                      {historyEntries.length > 0 ? (
+                        (() => {
+                          let lastGroup = "";
+                          return historyEntries.map((entry) => {
+                            const d = new Date(entry.created_at);
+                            const dateStr = d.toLocaleDateString();
+                            const groupLabel = dateStr === todayDateStr ? "Today" : dateStr === yesterdayDateStr ? "Yesterday" : d.toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" });
+                            const showHeader = groupLabel !== lastGroup;
+                            lastGroup = groupLabel;
+                            return (
+                              <div key={entry.id}>
+                                {showHeader && (
+                                  <div className="history-date-header">{groupLabel}</div>
+                                )}
+                                <div className="history-entry">
+                                  <div className="history-entry-title">{entry.title}</div>
+                                  <div className="history-entry-body">{entry.body}</div>
+                                  <div className="history-entry-time">
+                                    {d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+                                  </div>
+                                </div>
+                              </div>
+                            );
+                          });
+                        })()
+                      ) : historyLoading ? (
+                        <p className="muted" style={{ fontSize: "0.8rem", margin: "4px 0" }}>Loading...</p>
+                      ) : (
+                        <p className="muted" style={{ fontSize: "0.8rem", margin: "4px 0" }}>No notification history yet.</p>
+                      )}
+                      {historyLoading && historyEntries.length > 0 && (
+                        <p className="muted" style={{ fontSize: "0.75rem", textAlign: "center", margin: "4px 0" }}>Loading more...</p>
+                      )}
+                    </div>
+                  )}
+                </div>
+              </>
+            )}
+          </div>
           <StatusChip state={status.state} />
         </div>
       </div>
 
       <div className="today-hero">
-        <ProgressRing progress={isShiftMode && plannedMs > 0 ? coverageFrac : progressFrac}>
-          <strong>{isShiftMode && plannedMs > 0 ? coveragePct : progress}%</strong>
+        <ProgressRing progress={isShiftMode && plannedMs > 0 ? shiftRingFrac : progressFrac}>
+          <strong>{isShiftMode && plannedMs > 0 ? shiftRingPct : progress}%</strong>
           <span className="muted" style={{ fontSize: "0.72rem" }}>
-            {isShiftMode && plannedMs > 0 ? "covered" : "done"}
+            {isShiftMode && plannedMs > 0 ? "progress" : "done"}
           </span>
         </ProgressRing>
 
@@ -281,9 +387,12 @@ export default function TodayTab() {
           {isShiftMode && plannedMs > 0 ? (
             <>
               <div className="today-stat">
-                <span className="today-stat-label">Shift coverage</span>
+                <span className="today-stat-label">Hours</span>
                 <span className="today-stat-value">
-                  {formatHoursMinutes(liveCoverageMs)} / {formatHoursMinutes(plannedMs)}
+                  {formatHoursMinutes(workedMs)} / {formatHoursMinutes(plannedMs)}
+                </span>
+                <span className="muted" style={{ fontSize: "0.78rem" }}>
+                  {formatHoursMinutes(liveCoverageMs)} in scheduled hours
                 </span>
               </div>
               {tasks.length > 0 && (
@@ -335,12 +444,12 @@ export default function TodayTab() {
           <div className="today-progress-track">
             <div
               className="today-progress-fill"
-              style={{ width: `${Math.min(100, coveragePct)}%` }}
+              style={{ width: `${Math.min(100, shiftRingPct)}%` }}
             />
           </div>
           <div className="row between" style={{ fontSize: "0.78rem" }}>
-            <span className="muted">{formatHoursMinutes(liveCoverageMs)} covered</span>
-            <span className="muted">{formatHoursMinutes(plannedMs)} shift</span>
+            <span className="muted">{formatHoursMinutes(workedMs)} worked</span>
+            <span className="muted">{formatHoursMinutes(plannedMs)} planned shift</span>
           </div>
         </div>
       ) : targetMs > 0 ? (
@@ -357,6 +466,54 @@ export default function TodayTab() {
           </div>
         </div>
       ) : null}
+
+      {(() => {
+        const activeInsights = insights.filter((i) => !dismissedInsights.has(i.kind));
+        if (activeInsights.length === 0) return null;
+        const top = activeInsights[0];
+        const moreCount = activeInsights.length - 1;
+        return (
+          <div className="insights-inline-banner">
+            {insightsBannerExpanded ? (
+              activeInsights.map((insight) => (
+                <div key={insight.kind} className={`insight-inline-item insight-${insight.severity}`}>
+                  <span className="insight-icon">
+                    {insight.severity === "positive" ? "✓" : insight.severity === "warning" ? "!" : "i"}
+                  </span>
+                  <span className="insight-message">{insight.message}</span>
+                  <button type="button" className="insight-dismiss" onClick={() => dismissInsight(insight.kind)}>×</button>
+                </div>
+              ))
+            ) : (
+              <div className={`insight-inline-item insight-${top.severity}`}>
+                <span className="insight-icon">
+                  {top.severity === "positive" ? "✓" : top.severity === "warning" ? "!" : "i"}
+                </span>
+                <span className="insight-message">{top.message}</span>
+                {moreCount > 0 && (
+                  <button
+                    type="button"
+                    className="insight-more-badge"
+                    onClick={() => setInsightsBannerExpanded(true)}
+                  >
+                    +{moreCount} more
+                  </button>
+                )}
+                <button type="button" className="insight-dismiss" onClick={() => dismissInsight(top.kind)}>×</button>
+              </div>
+            )}
+            {insightsBannerExpanded && (
+              <button
+                type="button"
+                className="insight-collapse-btn"
+                onClick={() => setInsightsBannerExpanded(false)}
+              >
+                Show less
+              </button>
+            )}
+          </div>
+        );
+      })()}
 
       <div className="daily-tasks">
         <div className="daily-tasks-header">
@@ -461,32 +618,6 @@ export default function TodayTab() {
         )}
       </div>
 
-      {insights.length > 0 && (
-        <div className="insights-section">
-          <h3>Insights</h3>
-          {insights
-            .filter((i) => !dismissedInsights.has(i.kind))
-            .map((insight) => (
-              <div
-                key={insight.kind}
-                className={`insight-card insight-${insight.severity}`}
-              >
-                <span className="insight-icon">
-                  {insight.severity === "positive" ? "✓" : insight.severity === "warning" ? "!" : "i"}
-                </span>
-                <span className="insight-message">{insight.message}</span>
-                <button
-                  type="button"
-                  className="insight-dismiss"
-                  onClick={() => dismissInsight(insight.kind)}
-                >
-                  ×
-                </button>
-              </div>
-            ))}
-        </div>
-      )}
-
       {offSchedulePrompt && !status.active_session ? <OffScheduleConfirm /> : null}
 
       <div className="today-actions">
@@ -513,7 +644,7 @@ export default function TodayTab() {
             setOffSchedulePrompt(true);
           }}
         />
-        {!status.active_session && targetMs > 0 && (
+        {!status.active_session && (targetMs > 0 || status.day_done) && (
           <button
             className={`done-toggle ${status.day_done ? "done-toggle-active" : ""}`}
             onClick={async () => {

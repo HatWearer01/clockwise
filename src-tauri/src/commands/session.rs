@@ -197,6 +197,207 @@ fn boundary_timestamp(minute_of_day: i64, tomorrow: bool) -> Option<i64> {
     Some(datetime.timestamp_millis())
 }
 
+pub(crate) async fn week_start_day_setting(pool: &SqlitePool) -> i64 {
+    sqlx::query_scalar::<_, String>("SELECT value FROM settings WHERE key = 'week_start_day'")
+        .fetch_optional(pool)
+        .await
+        .ok()
+        .flatten()
+        .and_then(|v| v.parse::<i64>().ok())
+        .unwrap_or(1)
+        .clamp(0, 1)
+}
+
+async fn effective_planned_ms_for_weekday(
+    pool: &SqlitePool,
+    template_id: i64,
+    day_of_week: i64,
+) -> Result<i64, String> {
+    let planned_ms: i64 = sqlx::query_scalar(
+        "SELECT COALESCE(SUM(CASE WHEN end_min > start_min THEN (end_min - start_min) * 60000 ELSE (1440 - start_min + end_min) * 60000 END), 0)
+         FROM schedule_block WHERE template_id = ? AND day_of_week = ?",
+    )
+    .bind(template_id)
+    .bind(day_of_week)
+    .fetch_one(pool)
+    .await
+    .map_err(|e| e.to_string())?;
+
+    let day_target_min: i64 = sqlx::query_scalar(
+        "SELECT target_min FROM schedule_day_target WHERE template_id = ? AND day_of_week = ?",
+    )
+    .bind(template_id)
+    .bind(day_of_week)
+    .fetch_optional(pool)
+    .await
+    .map_err(|e| e.to_string())?
+    .unwrap_or(0);
+
+    Ok(if day_target_min > 0 {
+        day_target_min * 60_000
+    } else {
+        planned_ms
+    })
+}
+
+/// True if any calendar day from `today` through end of week (inclusive) has planned hours (blocks or day target).
+pub(crate) async fn remaining_week_has_scheduled_work(
+    pool: &SqlitePool,
+    template_id: i64,
+    today: chrono::NaiveDate,
+    week_start: chrono::NaiveDate,
+) -> Result<bool, String> {
+    let week_end = week_start + chrono::Duration::days(6);
+    let mut d = today;
+    while d <= week_end {
+        let weekday = i64::from(d.weekday().num_days_from_sunday());
+        let ms = effective_planned_ms_for_weekday(pool, template_id, weekday).await?;
+        if ms > 0 {
+            return Ok(true);
+        }
+        d = d.succ_opt().ok_or_else(|| "Invalid date increment".to_string())?;
+    }
+    Ok(false)
+}
+
+async fn try_auto_mark_week_done(pool: &SqlitePool) -> Result<(), String> {
+    let now_local = Local::now();
+    let wsd = week_start_day_setting(pool).await;
+    let week_anchor = week_start_date_for(now_local.date_naive(), wsd);
+    let done_key = format!("done_week_{}", week_anchor.format("%Y-%m-%d"));
+    let declined_key = format!("done_week_declined_{}", week_anchor.format("%Y-%m-%d"));
+
+    let existing_value: Option<String> =
+        sqlx::query_scalar("SELECT value FROM app_meta WHERE key = ?")
+            .bind(&done_key)
+            .fetch_optional(pool)
+            .await
+            .map_err(|e| e.to_string())?;
+
+    let tid = match active_template_id(pool).await {
+        Ok(id) => id,
+        Err(_) => return Ok(()),
+    };
+    let has_work =
+        remaining_week_has_scheduled_work(pool, tid, now_local.date_naive(), week_anchor).await?;
+
+    // Reconciliation: if the schedule revived (blocks added back) and the week
+    // was only auto-marked done, clear it so the user is no longer shown "done".
+    if has_work {
+        if existing_value.as_deref() == Some("auto") {
+            sqlx::query("DELETE FROM app_meta WHERE key = ?")
+                .bind(&done_key)
+                .execute(pool)
+                .await
+                .map_err(|e| e.to_string())?;
+            sqlx::query("DELETE FROM app_meta WHERE key = ?")
+                .bind(&declined_key)
+                .execute(pool)
+                .await
+                .map_err(|e| e.to_string())?;
+            log::info!(
+                "[status] cleared auto week-done (schedule revived); anchor={}",
+                week_anchor.format("%Y-%m-%d")
+            );
+        }
+        return Ok(());
+    }
+
+    if existing_value.is_some() {
+        return Ok(());
+    }
+
+    let user_declined = sqlx::query("SELECT 1 FROM app_meta WHERE key = ?")
+        .bind(&declined_key)
+        .fetch_optional(pool)
+        .await
+        .map_err(|e| e.to_string())?
+        .is_some();
+    if user_declined {
+        return Ok(());
+    }
+
+    sqlx::query(
+        "INSERT INTO app_meta (key, value) VALUES (?, 'auto')
+         ON CONFLICT(key) DO UPDATE SET value = 'auto'",
+    )
+    .bind(&done_key)
+    .execute(pool)
+    .await
+    .map_err(|e| e.to_string())?;
+    log::info!(
+        "[status] auto week done (no remaining scheduled days); anchor={}",
+        week_anchor.format("%Y-%m-%d")
+    );
+    Ok(())
+}
+
+async fn try_auto_mark_day_done(pool: &SqlitePool) -> Result<(), String> {
+    let now_local = Local::now();
+    let date_str = now_local.format("%Y-%m-%d").to_string();
+    let done_key = format!("done_day_{date_str}");
+    let declined_key = format!("done_day_declined_{date_str}");
+
+    let existing_value: Option<String> =
+        sqlx::query_scalar("SELECT value FROM app_meta WHERE key = ?")
+            .bind(&done_key)
+            .fetch_optional(pool)
+            .await
+            .map_err(|e| e.to_string())?;
+    if existing_value.is_some() {
+        return Ok(());
+    }
+
+    let user_declined = sqlx::query("SELECT 1 FROM app_meta WHERE key = ?")
+        .bind(&declined_key)
+        .fetch_optional(pool)
+        .await
+        .map_err(|e| e.to_string())?
+        .is_some();
+    if user_declined {
+        return Ok(());
+    }
+
+    let tid = match active_template_id(pool).await {
+        Ok(id) => id,
+        Err(_) => return Ok(()),
+    };
+
+    let day_of_week = i64::from(now_local.weekday().num_days_from_sunday());
+    let has_blocks = sqlx::query("SELECT 1 FROM schedule_block WHERE template_id = ? AND day_of_week = ? LIMIT 1")
+        .bind(tid)
+        .bind(day_of_week)
+        .fetch_optional(pool)
+        .await
+        .map_err(|e| e.to_string())?
+        .is_some();
+
+    let explicit_target: i64 = sqlx::query_scalar(
+        "SELECT COALESCE(target_min, 0) FROM schedule_day_target WHERE template_id = ? AND day_of_week = ?",
+    )
+    .bind(tid)
+    .bind(day_of_week)
+    .fetch_optional(pool)
+    .await
+    .map_err(|e| e.to_string())?
+    .unwrap_or(0);
+
+    if has_blocks || explicit_target > 0 {
+        return Ok(());
+    }
+
+    sqlx::query(
+        "INSERT INTO app_meta (key, value) VALUES (?, 'auto')
+         ON CONFLICT(key) DO UPDATE SET value = 'auto'",
+    )
+    .bind(&done_key)
+    .execute(pool)
+    .await
+    .map_err(|e| e.to_string())?;
+    log::info!("[status] auto day done (off-day, no blocks or targets); date={date_str}");
+    Ok(())
+}
+
 fn day_label(day_of_week: i64) -> &'static str {
     match day_of_week {
         0 => "Sun",
@@ -493,8 +694,13 @@ pub async fn get_status(state: tauri::State<'_, AppState>) -> Result<StatusRespo
         false
     };
 
-    let monday = now_local.date_naive() - chrono::Duration::days(i64::from(now_local.weekday().num_days_from_monday()));
-    let done_key = format!("done_week_{}", monday.format("%Y-%m-%d"));
+    let _ = try_auto_mark_week_done(&state.pool).await;
+    let _ = try_auto_mark_day_done(&state.pool).await;
+
+    let wsd = week_start_day_setting(&state.pool).await;
+    let week_anchor = week_start_date_for(now_local.date_naive(), wsd);
+    let done_key = format!("done_week_{}", week_anchor.format("%Y-%m-%d"));
+
     let week_done = sqlx::query("SELECT 1 FROM app_meta WHERE key = ?")
         .bind(&done_key)
         .fetch_optional(&state.pool)
@@ -631,7 +837,7 @@ pub async fn get_status(state: tauri::State<'_, AppState>) -> Result<StatusRespo
     })
 }
 
-fn week_start_date_for(date: chrono::NaiveDate, week_start_day: i64) -> chrono::NaiveDate {
+pub(crate) fn week_start_date_for(date: chrono::NaiveDate, week_start_day: i64) -> chrono::NaiveDate {
     if week_start_day == 0 {
         let days_since_sunday = i64::from(date.weekday().num_days_from_sunday());
         date - chrono::Duration::days(days_since_sunday)
@@ -744,10 +950,17 @@ pub async fn get_week_summary(
 #[tauri::command]
 pub async fn mark_week_done(state: tauri::State<'_, AppState>, done: bool) -> Result<(), ApiError> {
     let now = Local::now();
-    let monday = now.date_naive() - chrono::Duration::days(i64::from(now.weekday().num_days_from_monday()));
-    let key = format!("done_week_{}", monday.format("%Y-%m-%d"));
+    let wsd = week_start_day_setting(&state.pool).await;
+    let week_anchor = week_start_date_for(now.date_naive(), wsd);
+    let key = format!("done_week_{}", week_anchor.format("%Y-%m-%d"));
+    let declined_key = format!("done_week_declined_{}", week_anchor.format("%Y-%m-%d"));
 
     if done {
+        sqlx::query("DELETE FROM app_meta WHERE key = ?")
+            .bind(&declined_key)
+            .execute(&state.pool)
+            .await
+            .map_err(|e| ApiError::from(e.to_string()))?;
         sqlx::query(
             "INSERT INTO app_meta (key, value) VALUES (?, '1')
              ON CONFLICT(key) DO UPDATE SET value = '1'",
@@ -762,6 +975,14 @@ pub async fn mark_week_done(state: tauri::State<'_, AppState>, done: bool) -> Re
             .execute(&state.pool)
             .await
             .map_err(|e| ApiError::from(e.to_string()))?;
+        sqlx::query(
+            "INSERT INTO app_meta (key, value) VALUES (?, '1')
+             ON CONFLICT(key) DO UPDATE SET value = '1'",
+        )
+        .bind(&declined_key)
+        .execute(&state.pool)
+        .await
+        .map_err(|e| ApiError::from(e.to_string()))?;
     }
     Ok(())
 }
@@ -770,8 +991,14 @@ pub async fn mark_week_done(state: tauri::State<'_, AppState>, done: bool) -> Re
 pub async fn mark_day_done(state: tauri::State<'_, AppState>, done: bool) -> Result<(), ApiError> {
     let now = Local::now();
     let key = format!("done_day_{}", now.format("%Y-%m-%d"));
+    let declined_key = format!("done_day_declined_{}", now.format("%Y-%m-%d"));
 
     if done {
+        sqlx::query("DELETE FROM app_meta WHERE key = ?")
+            .bind(&declined_key)
+            .execute(&state.pool)
+            .await
+            .map_err(|e| ApiError::from(e.to_string()))?;
         sqlx::query(
             "INSERT INTO app_meta (key, value) VALUES (?, '1')
              ON CONFLICT(key) DO UPDATE SET value = '1'",
@@ -786,12 +1013,22 @@ pub async fn mark_day_done(state: tauri::State<'_, AppState>, done: bool) -> Res
             .execute(&state.pool)
             .await
             .map_err(|e| ApiError::from(e.to_string()))?;
+        sqlx::query(
+            "INSERT INTO app_meta (key, value) VALUES (?, '1')
+             ON CONFLICT(key) DO UPDATE SET value = '1'",
+        )
+        .bind(&declined_key)
+        .execute(&state.pool)
+        .await
+        .map_err(|e| ApiError::from(e.to_string()))?;
     }
     Ok(())
 }
 
 #[tauri::command]
 pub async fn is_day_done(state: tauri::State<'_, AppState>) -> Result<bool, ApiError> {
+    let _ = try_auto_mark_day_done(&state.pool).await;
+
     let now = Local::now();
     let key = format!("done_day_{}", now.format("%Y-%m-%d"));
 
@@ -805,9 +1042,12 @@ pub async fn is_day_done(state: tauri::State<'_, AppState>) -> Result<bool, ApiE
 
 #[tauri::command]
 pub async fn is_week_done(state: tauri::State<'_, AppState>) -> Result<bool, ApiError> {
+    let _ = try_auto_mark_week_done(&state.pool).await;
+
     let now = Local::now();
-    let monday = now.date_naive() - chrono::Duration::days(i64::from(now.weekday().num_days_from_monday()));
-    let key = format!("done_week_{}", monday.format("%Y-%m-%d"));
+    let wsd = week_start_day_setting(&state.pool).await;
+    let week_anchor = week_start_date_for(now.date_naive(), wsd);
+    let key = format!("done_week_{}", week_anchor.format("%Y-%m-%d"));
 
     let exists = sqlx::query("SELECT 1 FROM app_meta WHERE key = ?")
         .bind(&key)
@@ -2062,5 +2302,311 @@ mod tests {
         let (start, _end) = crate::db::start_of_workday_window().unwrap();
         let is_overnight = session.started_at < start;
         assert!(!is_overnight, "Session that started today should not be overnight");
+    }
+
+    #[tokio::test]
+    async fn remaining_week_has_no_scheduled_when_only_weekend_left() {
+        let state = test_state().await;
+        let tid: i64 = sqlx::query_scalar("SELECT id FROM schedule_template LIMIT 1")
+            .fetch_one(&state.pool)
+            .await
+            .unwrap();
+        let week_start = chrono::NaiveDate::from_ymd_opt(2026, 5, 4).unwrap();
+        let saturday = chrono::NaiveDate::from_ymd_opt(2026, 5, 9).unwrap();
+        let has = remaining_week_has_scheduled_work(&state.pool, tid, saturday, week_start)
+            .await
+            .unwrap();
+        assert!(
+            !has,
+            "Sat–Sun only should have no planned blocks with default Mon–Fri template"
+        );
+    }
+
+    #[tokio::test]
+    async fn remaining_week_has_scheduled_when_weekdays_remain() {
+        let state = test_state().await;
+        let tid: i64 = sqlx::query_scalar("SELECT id FROM schedule_template LIMIT 1")
+            .fetch_one(&state.pool)
+            .await
+            .unwrap();
+        let week_start = chrono::NaiveDate::from_ymd_opt(2026, 5, 4).unwrap();
+        let wednesday = chrono::NaiveDate::from_ymd_opt(2026, 5, 6).unwrap();
+        let has = remaining_week_has_scheduled_work(&state.pool, tid, wednesday, week_start)
+            .await
+            .unwrap();
+        assert!(has, "Wed–Sun range still includes Thu–Fri work days");
+    }
+
+    #[tokio::test]
+    async fn auto_week_done_stores_auto_value() {
+        let state = test_state().await;
+        let wsd = week_start_day_setting(&state.pool).await;
+        let now = Local::now();
+        let anchor = week_start_date_for(now.date_naive(), wsd);
+        let done_key = format!("done_week_{}", anchor.format("%Y-%m-%d"));
+
+        // Ensure no remaining work by removing all schedule blocks for the
+        // days from today through week end.
+        sqlx::query("DELETE FROM schedule_block")
+            .execute(&state.pool)
+            .await
+            .unwrap();
+
+        try_auto_mark_week_done(&state.pool).await.unwrap();
+
+        let val: Option<String> =
+            sqlx::query_scalar("SELECT value FROM app_meta WHERE key = ?")
+                .bind(&done_key)
+                .fetch_optional(&state.pool)
+                .await
+                .unwrap();
+        assert_eq!(val.as_deref(), Some("auto"), "auto week-done should store 'auto'");
+    }
+
+    #[tokio::test]
+    async fn manual_week_done_stores_one() {
+        let state = test_state().await;
+        let wsd = week_start_day_setting(&state.pool).await;
+        let now = Local::now();
+        let anchor = week_start_date_for(now.date_naive(), wsd);
+        let done_key = format!("done_week_{}", anchor.format("%Y-%m-%d"));
+
+        sqlx::query(
+            "INSERT INTO app_meta (key, value) VALUES (?, '1')
+             ON CONFLICT(key) DO UPDATE SET value = '1'",
+        )
+        .bind(&done_key)
+        .execute(&state.pool)
+        .await
+        .unwrap();
+
+        let val: Option<String> =
+            sqlx::query_scalar("SELECT value FROM app_meta WHERE key = ?")
+                .bind(&done_key)
+                .fetch_optional(&state.pool)
+                .await
+                .unwrap();
+        assert_eq!(val.as_deref(), Some("1"), "manual week-done should store '1'");
+    }
+
+    #[tokio::test]
+    async fn reconciliation_clears_auto_but_not_manual() {
+        let state = test_state().await;
+        let wsd = week_start_day_setting(&state.pool).await;
+        let now = Local::now();
+        let anchor = week_start_date_for(now.date_naive(), wsd);
+        let done_key = format!("done_week_{}", anchor.format("%Y-%m-%d"));
+
+        // Simulate an auto-marked week with schedule blocks still present
+        // (i.e. the schedule "revived").
+        sqlx::query(
+            "INSERT INTO app_meta (key, value) VALUES (?, 'auto')
+             ON CONFLICT(key) DO UPDATE SET value = 'auto'",
+        )
+        .bind(&done_key)
+        .execute(&state.pool)
+        .await
+        .unwrap();
+
+        // Default test DB has weekday blocks, so if today is a weekday with
+        // remaining days, reconciliation should clear 'auto'. If it's a
+        // weekend day, add a block for Sunday to guarantee remaining work.
+        let today_dow = i64::from(now.date_naive().weekday().num_days_from_sunday());
+        if today_dow == 0 || today_dow == 6 {
+            let tid: i64 = sqlx::query_scalar("SELECT id FROM schedule_template LIMIT 1")
+                .fetch_one(&state.pool)
+                .await
+                .unwrap();
+            sqlx::query(
+                "INSERT INTO schedule_block (template_id, day_of_week, start_min, end_min, label, color)
+                 VALUES (?, 0, 540, 1020, 'Sunday work', '#34D399')",
+            )
+            .bind(tid)
+            .execute(&state.pool)
+            .await
+            .unwrap();
+        }
+
+        try_auto_mark_week_done(&state.pool).await.unwrap();
+
+        let val: Option<String> =
+            sqlx::query_scalar("SELECT value FROM app_meta WHERE key = ?")
+                .bind(&done_key)
+                .fetch_optional(&state.pool)
+                .await
+                .unwrap();
+        assert!(val.is_none(), "auto week-done should be cleared when schedule revives");
+
+        // Now set manual ('1') and verify reconciliation does NOT clear it.
+        sqlx::query(
+            "INSERT INTO app_meta (key, value) VALUES (?, '1')
+             ON CONFLICT(key) DO UPDATE SET value = '1'",
+        )
+        .bind(&done_key)
+        .execute(&state.pool)
+        .await
+        .unwrap();
+
+        try_auto_mark_week_done(&state.pool).await.unwrap();
+
+        let val2: Option<String> =
+            sqlx::query_scalar("SELECT value FROM app_meta WHERE key = ?")
+                .bind(&done_key)
+                .fetch_optional(&state.pool)
+                .await
+                .unwrap();
+        assert_eq!(val2.as_deref(), Some("1"), "manual '1' should NOT be cleared by reconciliation");
+    }
+
+    #[tokio::test]
+    async fn declined_flag_prevents_auto_week_done() {
+        let state = test_state().await;
+        let wsd = week_start_day_setting(&state.pool).await;
+        let now = Local::now();
+        let anchor = week_start_date_for(now.date_naive(), wsd);
+        let done_key = format!("done_week_{}", anchor.format("%Y-%m-%d"));
+        let declined_key = format!("done_week_declined_{}", anchor.format("%Y-%m-%d"));
+
+        sqlx::query("DELETE FROM schedule_block")
+            .execute(&state.pool)
+            .await
+            .unwrap();
+
+        sqlx::query("INSERT INTO app_meta (key, value) VALUES (?, '1')")
+            .bind(&declined_key)
+            .execute(&state.pool)
+            .await
+            .unwrap();
+
+        try_auto_mark_week_done(&state.pool).await.unwrap();
+
+        let val: Option<String> =
+            sqlx::query_scalar("SELECT value FROM app_meta WHERE key = ?")
+                .bind(&done_key)
+                .fetch_optional(&state.pool)
+                .await
+                .unwrap();
+        assert!(val.is_none(), "auto week-done should be suppressed when declined flag is set");
+    }
+
+    #[tokio::test]
+    async fn auto_day_done_on_off_day() {
+        let state = test_state().await;
+        let now = Local::now();
+        let date_str = now.format("%Y-%m-%d").to_string();
+        let done_key = format!("done_day_{date_str}");
+        let day_of_week = i64::from(now.weekday().num_days_from_sunday());
+
+        let tid: i64 = sqlx::query_scalar("SELECT id FROM schedule_template LIMIT 1")
+            .fetch_one(&state.pool)
+            .await
+            .unwrap();
+
+        sqlx::query("DELETE FROM schedule_block WHERE template_id = ? AND day_of_week = ?")
+            .bind(tid)
+            .bind(day_of_week)
+            .execute(&state.pool)
+            .await
+            .unwrap();
+        sqlx::query("DELETE FROM schedule_day_target WHERE template_id = ? AND day_of_week = ?")
+            .bind(tid)
+            .bind(day_of_week)
+            .execute(&state.pool)
+            .await
+            .unwrap();
+
+        try_auto_mark_day_done(&state.pool).await.unwrap();
+
+        let val: Option<String> =
+            sqlx::query_scalar("SELECT value FROM app_meta WHERE key = ?")
+                .bind(&done_key)
+                .fetch_optional(&state.pool)
+                .await
+                .unwrap();
+        assert_eq!(val.as_deref(), Some("auto"), "off-day should be auto-marked done");
+    }
+
+    #[tokio::test]
+    async fn auto_day_done_skipped_when_blocks_exist() {
+        let state = test_state().await;
+        let now = Local::now();
+        let date_str = now.format("%Y-%m-%d").to_string();
+        let done_key = format!("done_day_{date_str}");
+        let day_of_week = i64::from(now.weekday().num_days_from_sunday());
+
+        let tid: i64 = sqlx::query_scalar("SELECT id FROM schedule_template LIMIT 1")
+            .fetch_one(&state.pool)
+            .await
+            .unwrap();
+
+        sqlx::query("DELETE FROM schedule_block WHERE template_id = ? AND day_of_week = ?")
+            .bind(tid)
+            .bind(day_of_week)
+            .execute(&state.pool)
+            .await
+            .unwrap();
+        sqlx::query(
+            "INSERT INTO schedule_block (template_id, day_of_week, start_min, end_min, label, color)
+             VALUES (?, ?, 540, 1020, 'Work', '#34D399')",
+        )
+        .bind(tid)
+        .bind(day_of_week)
+        .execute(&state.pool)
+        .await
+        .unwrap();
+
+        try_auto_mark_day_done(&state.pool).await.unwrap();
+
+        let val: Option<String> =
+            sqlx::query_scalar("SELECT value FROM app_meta WHERE key = ?")
+                .bind(&done_key)
+                .fetch_optional(&state.pool)
+                .await
+                .unwrap();
+        assert!(val.is_none(), "day with blocks should NOT be auto-marked done");
+    }
+
+    #[tokio::test]
+    async fn auto_day_done_declined_prevents_re_mark() {
+        let state = test_state().await;
+        let now = Local::now();
+        let date_str = now.format("%Y-%m-%d").to_string();
+        let done_key = format!("done_day_{date_str}");
+        let declined_key = format!("done_day_declined_{date_str}");
+        let day_of_week = i64::from(now.weekday().num_days_from_sunday());
+
+        let tid: i64 = sqlx::query_scalar("SELECT id FROM schedule_template LIMIT 1")
+            .fetch_one(&state.pool)
+            .await
+            .unwrap();
+
+        sqlx::query("DELETE FROM schedule_block WHERE template_id = ? AND day_of_week = ?")
+            .bind(tid)
+            .bind(day_of_week)
+            .execute(&state.pool)
+            .await
+            .unwrap();
+        sqlx::query("DELETE FROM schedule_day_target WHERE template_id = ? AND day_of_week = ?")
+            .bind(tid)
+            .bind(day_of_week)
+            .execute(&state.pool)
+            .await
+            .unwrap();
+
+        sqlx::query("INSERT INTO app_meta (key, value) VALUES (?, '1')")
+            .bind(&declined_key)
+            .execute(&state.pool)
+            .await
+            .unwrap();
+
+        try_auto_mark_day_done(&state.pool).await.unwrap();
+
+        let val: Option<String> =
+            sqlx::query_scalar("SELECT value FROM app_meta WHERE key = ?")
+                .bind(&done_key)
+                .fetch_optional(&state.pool)
+                .await
+                .unwrap();
+        assert!(val.is_none(), "declined flag should prevent auto day-done");
     }
 }

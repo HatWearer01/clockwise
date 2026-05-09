@@ -165,6 +165,15 @@ export type WeeklyReviewDay = {
   on_time: boolean;
 };
 
+export type NotificationLogEntry = {
+  id: number;
+  key: string;
+  title: string;
+  body: string;
+  action_kind: string | null;
+  created_at: number;
+};
+
 export type WeeklyReview = {
   week_label: string;
   days_worked: number;

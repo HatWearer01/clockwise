@@ -10,23 +10,36 @@ Built with Tauri 2, React 19, and TypeScript. Windows native.
 
 - **Clock in/out and break tracking** — one-click clock in, take breaks, see worked vs break time separately
 - **Weekly schedule** — set your planned hours per day with optional per-day hour targets, including overnight shifts (e.g. 11 PM to 7 AM); supports fixed, flex (target-only), and hybrid (preferred window + target) modes; overnight sessions are attributed to the day they started and clearly labeled in the UI
-- **"Done for the day / week" toggles** — mark your day or week as complete early; the entire app reflects this (no more "in shift" reminders or clock-in nudges)
-- **Smart notifications** — configurable reminder interval (1–30 min), repeating clock-in/out nudges via Windows toast + in-app banner, with configurable quiet hours (custom start/end times) and customizable idle nudge thresholds (break reminder after N min, inactivity alert after N min)
+- **"Done for the day / week" toggles** — mark your day or week as complete early; the entire app reflects this (no more "in shift" reminders or clock-in nudges). **Done for the day** turns on automatically on off-days (no blocks, no target); **Done for the week** turns on automatically when every remaining calendar day in the week has no planned blocks or targets. Turn either off if you still plan to log time (the app remembers your choice and won't auto-enable again that day/week). The system tray also offers a **Done for the week** toggle for quick access
+- **Smart notifications** — configurable reminder interval (1–30 min), repeating clock-in/out nudges via Windows toast + in-app banner, with configurable quiet hours (custom start/end times) and customizable idle nudge thresholds (break reminder after N min, inactivity alert after N min); if you clock in **after** your scheduled shift has already ended (makeup work), the app does not repeat “shift ended — clock out” nudges; **full notification history** — every notification is logged to the database and browsable via the bell icon's History tab with date-grouped scrollable list, lazy-loading pagination, and all-time retention
+- **Pattern insights** — inline banner on the Today tab shows the highest-priority insight (late starts, weekend creep, cramming, missed days, streaks) with expand/dismiss controls; insights also appear in the bell panel's Active tab alongside live notifications
 - **Close to tray** — X button hides to system tray; left-click tray icon toggles visibility, right-click for menu
 - **Daily task checklist** — create tasks for any day, check them off, roll over incomplete tasks to other days; optional subtasks for granular tracking; standalone Tasks tab plus inline tasks on Today and Week views
 - **Recurring tasks** — set tasks to repeat daily, on weekdays, specific days of the week, weekly, or every N days; instances are auto-created and track weekly completion stats (e.g. "3/5 done this week")
 - **Task history navigation** — browse tasks from any past or future week with prev/next navigation; past weeks are read-only for historical reference
-- **Compact and expanded modes** — compact floating widget with live date/time and key stats (shift coverage + tasks in shift mode, worked/left in target mode), or full dashboard with Today, Tasks, Schedule, Week, and Settings tabs
-- **Weekly stats and history** — progress bars, hours logged vs planned, 8-week history chart with clickable bars; navigate to any past week's full day-by-day breakdown with tasks; shift mode shows shift coverage and task counts per day instead of hours worked
+- **Compact and expanded modes** — compact floating widget with live date/time and key stats (shift progress + tasks in shift mode, worked/left in target mode), or full dashboard with Today, Tasks, Schedule, Week, and Settings tabs
+- **Weekly stats and history** — progress bars, hours logged vs planned, 8-week history chart with clickable bars; navigate to any past week's full day-by-day breakdown with tasks; **shift** mode still emphasizes scheduled-window presence but progress bars and totals use **hours logged** vs planned, with optional “in shift” breakdown when some time was outside the window
 - **Daily hour targets** — set explicit target hours per day alongside or instead of fixed time blocks; supports three modes: fixed (target derived from blocks), flex (target only, no time window), and hybrid (preferred window + explicit target); "behind target" status and post-window nudges when you haven't hit your hours
 - **Off-schedule boundary warnings** — clocking in outside scheduled hours triggers a confirmation prompt (shared across compact and expanded views); compact mode shows an amber dot while working off-schedule; clock-in button turns indigo when outside shift hours (shift mode only); keeps you aware without blocking
 - **Notification bell** — unified bell icon on the Today tab aggregates pattern insights and live notifications (behind-target, off-schedule, action prompts) in one place; badge shows count of undismissed items only; panel separates active notifications from dismissed history; dismiss individual items without losing them
 - **Pattern insights** — automatic detection of work patterns: per-day start-time drift (compared against each day's scheduled block, not a global average), weekend creep, late-night sessions, cramming (one day > 50% of weekly hours), missed scheduled days, and on-schedule streaks; fed into the notification bell alongside live alerts
 - **Weekly review** — auto-shows a summary modal on the first app open of each new week; grades the previous week with days worked, target completion %, on-time starts, off-schedule sessions, average start/end times, and pattern insights; also accessible manually via "Review" button on the Week tab; adapts wording in shift mode (shift coverage % instead of target completion)
 - **Crash recovery** — heartbeat file (every 30s) detects unclean shutdowns; on next launch, proposes an end time for the orphaned session, closes any dangling breaks, and caps recovery to prevent future timestamps
-- **Accountability modes** — choose between "shift" (focus on being present during scheduled blocks) and "target" (focus on hitting X hours regardless of when); shift mode shows shift coverage % and task progress instead of hours worked/left across Today, Compact, and Week views; target mode shows traditional worked/remaining/overtime stats; affects clock-in button color, progress ring, stats, and notification behavior
+- **Accountability modes** — choose between "shift" (focus on being present during scheduled blocks) and "target" (focus on hitting X hours regardless of when); shift mode weights the progress ring (and related bars) toward **both** in-window coverage and total hours vs your planned shift length so late or off-window work still moves the dial; task progress and stats stay shift-oriented; target mode shows traditional worked/remaining/overtime stats; affects clock-in button color, progress ring, stats, and notification behavior
 - **Settings** — always-on-top toggle, window opacity slider, week start day (Monday/Sunday), 12h/24h time format, autostart, notification and idle nudge controls with sub-options, accountability mode (shift/target)
 - **Lock/sleep detection** — detects Windows session lock/unlock and sleep/wake events; pauses tracking context so idle time isn't counted
+
+## Behavior Notes
+
+A few cross-cutting behaviors to be aware of when using or contributing to Clockwise:
+
+- **"Done for the day" — auto on off-days.** If today has no schedule blocks and no explicit day target, the app automatically marks the day as done (stored as `'auto'`). This silences all notifications on rest days without any manual action. If you toggle **Done for the day** off, a declined flag prevents re-auto-marking for the rest of that day. Clocking in always clears the day-done flag so tracking resumes normally.
+- **"Done for the week" — auto vs manual.** If every remaining calendar day in the current week (from today through the last day, based on your **Week starts on** setting) has no scheduled blocks or day targets, the app automatically marks the week as done. If you manually turn **Done for the week** off after it was auto-applied, the app records a "declined" flag and will not auto-enable again until the following week. If you later add schedule blocks to a future day in the same week and the week was auto-marked done, the flag is automatically cleared so you are no longer shown "Week complete." Manually marking the week done is never auto-cleared — the app respects that you chose to stop early.
+- **System tray includes "Done for the week."** The right-click tray menu now offers a **Done for the week** toggle alongside Clock In / Clock Out, so you can mark the week complete without opening the app window.
+- **Clocking in clears "day done" but not "week done."** Clocking in removes the day-done flag for today (so you start tracking again), but does not touch the week-done flag. If the week is marked done and you still want to work, turn off **Done for the week** yourself.
+- **Changing "Week starts on" in Settings** takes effect immediately for the Week tab, weekly review, and auto week-done logic. However, old `done_week_*` meta keys stored under the previous anchor are not migrated. If you switch from Monday to Sunday (or vice versa) mid-week, toggle **Done for the week** once to clear any stale state.
+- **Weekly review modal** is shown once per new week on first app open. If you change **Week starts on**, the review may re-trigger because the stored "last reviewed" anchor no longer matches the new week boundary. This is by design — you get a fresh review under the new cadence.
+- **Settings changes propagate immediately.** Switching **accountability mode** or **week start day** triggers an instant status refresh and notification re-check so the Today tab, Compact view, and notification behavior update without waiting for the 30-second poll.
 
 ## Tech Stack
 
@@ -70,33 +83,33 @@ npm run test:coverage
 cd src-tauri && cargo test
 ```
 
-### Test Architecture — 282 tests across 3 layers
+### Test Architecture — 299 tests across 3 layers
 
 Every feature is covered by **three test layers**: Rust backend unit tests, frontend component/store tests, and full-stack E2E smoke tests. All three must pass before shipping.
 
 ---
 
-#### Layer 1 · Rust Backend Tests (75 tests)
+#### Layer 1 · Rust Backend Tests (88 tests)
 
 Located inline in each module as `#[cfg(test)] mod tests { ... }`. These test the data layer and business logic directly against an in-memory SQLite database, so they run fast and in isolation.
 
 | Module | What's tested |
 |--------|---------------|
 | `db.rs` | Schema creation, idempotent init, default schedule seeding, template bootstrapping |
-| `commands/session.rs` | Clock in/out, break start/resume, pause subtraction, active session detection, pending recovery, checklist toggle, day/week done, overnight session, daily hour targets, behind-target status, off-schedule detection, pattern insights (6 heuristics), weekly review summary |
+| `commands/session.rs` | Clock in/out, break start/resume, pause subtraction, active session detection, pending recovery, checklist toggle, day/week done, auto week-done (store `'auto'`, reconciliation when schedule revives, declined flag), overnight session, daily hour targets, behind-target status, off-schedule detection, pattern insights (6 heuristics), weekly review summary |
 | `commands/tasks.rs` | Daily task CRUD, toggle done/undone, rollover, sort ordering, delete; recurring task recurrence patterns (daily, weekdays, specific days, weekly, every N days), auto-instantiation, end-date boundaries, week query aggregation, recurring stats |
 | `commands/schedule.rs` | Block CRUD, validation (day range, time range), template activation, legacy schedule sync, cascade deletes, day target persistence |
 | `commands/settings.rs` | Setting defaults, round-trip persistence, opacity clamping, boolean parsing, new keys (always_on_top, week_start_day, time_format, idle nudge thresholds), clamping validation |
-| `notifications.rs` | Interval-based reminder dedup, quiet hours (normal and wrap-around), overtime nudge, idle nudge, DB-backed threshold validation, day/week-done suppression, behind-target nudges |
+| `notifications.rs` | Interval-based reminder dedup, quiet hours (normal and wrap-around), overtime nudge, idle nudge, DB-backed threshold validation, day/week-done suppression, behind-target nudges, shift-end timestamp helpers, notification log insert/query, history pagination |
 | `startup.rs` | Stale session reconciliation, pending recovery creation, startup notice lifecycle, heartbeat file handling |
-| `tray.rs` | System tray setup, left-click toggle, right-click menu (show/clock in/clock out/quit) |
+| `tray.rs` | System tray setup, left-click toggle, right-click menu (show/clock in/clock out/week done/quit) |
 | `lock_detect.rs` | Windows session lock/unlock and sleep/wake detection via message-only window |
 
 **Test helper:** `src/test_helpers.rs` provides `test_state()` which builds an in-memory SQLite pool, runs all migrations, and returns a ready-to-use `AppState`.
 
 ---
 
-#### Layer 2 · Frontend Tests (185 tests)
+#### Layer 2 · Frontend Tests (189 tests)
 
 Powered by **Vitest** + **React Testing Library** + **jsdom**. The Tauri IPC layer (`@tauri-apps/api`) is mocked globally in `src/test-setup.ts`, allowing all frontend logic to be tested without a running Tauri backend.
 
@@ -109,7 +122,7 @@ Powered by **Vitest** + **React Testing Library** + **jsdom**. The Tauri IPC lay
 | `src/components/*.test.tsx` | ClockButton, ProgressRing, StatusChip — all visual states and props |
 | `src/views/Compact.test.tsx` | Loading state, status display, button visibility per session state |
 | `src/views/Expanded/*.test.tsx` | TodayTab, TasksTab, ScheduleTab, WeekTab, SettingsTab — rendering, interactions, API calls |
-| `src/App.test.tsx` | Full app lifecycle: banners (notice, recovery, resume, action prompt, error), off-schedule banner removal verification, event listeners, weekly review auto-show, mode switching |
+| `src/App.test.tsx` | Full app lifecycle: banners (notice, recovery, resume, action prompt, error), off-schedule banner removal verification, event listeners (incl. tray week-done toggle), weekly review auto-show, mode switching |
 
 ---
 
@@ -183,7 +196,7 @@ npm run smoke
 
 - **Three layers, one goal:** Backend unit tests catch logic bugs, frontend tests catch UI/state bugs, E2E tests catch integration bugs across the full stack. Every new feature should be covered by at least two of these layers.
 - **Isolation:** Each test creates its own in-memory database (Rust) or resets store state (frontend). Tests never depend on execution order.
-- **Speed:** The unit/component suite (260 tests) runs in under 10 seconds. E2E tests take longer (build + launch + drive) but cover the real binary.
+- **Speed:** The unit/component suite (277 tests) runs in under 10 seconds. E2E tests take longer (build + launch + drive) but cover the real binary.
 - **No network/OS dependencies:** All external APIs (Tauri IPC, notifications, window management, filesystem heartbeat) are mocked or use temp files in unit tests. E2E tests run the actual app against a fresh SQLite database.
 - **Static analysis:** ESLint with `eslint-plugin-react-hooks` catches hooks-order violations (conditional hooks, hooks after early returns) at lint time, before they become runtime crashes.
 - **Feature-aligned:** Tests are organized by feature, not by test type. This makes it easy to find and extend coverage when modifying a specific feature.

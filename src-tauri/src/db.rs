@@ -337,6 +337,20 @@ pub async fn init_db(pool: &SqlitePool) -> Result<(), String> {
     .await
     .map_err(|e| e.to_string())?;
 
+    sqlx::query(
+        "CREATE TABLE IF NOT EXISTS notification_log (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          key TEXT NOT NULL,
+          title TEXT NOT NULL,
+          body TEXT NOT NULL,
+          action_kind TEXT,
+          created_at INTEGER NOT NULL
+        )",
+    )
+    .execute(pool)
+    .await
+    .map_err(|e| e.to_string())?;
+
     let count: i64 = sqlx::query("SELECT COUNT(*) FROM schedule")
         .fetch_one(pool)
         .await

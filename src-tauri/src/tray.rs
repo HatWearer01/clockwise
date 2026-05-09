@@ -13,9 +13,12 @@ pub fn init_tray(app: &App) -> Result<(), String> {
         .map_err(|e| e.to_string())?;
     let clock_out = MenuItem::with_id(app, "clock_out", "Clock Out", true, None::<&str>)
         .map_err(|e| e.to_string())?;
+    let week_done =
+        MenuItem::with_id(app, "week_done", "Done for the week", true, None::<&str>)
+            .map_err(|e| e.to_string())?;
     let quit = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>).map_err(|e| e.to_string())?;
 
-    let menu = Menu::with_items(app, &[&show, &clock_in, &clock_out, &quit]).map_err(|e| e.to_string())?;
+    let menu = Menu::with_items(app, &[&show, &clock_in, &clock_out, &week_done, &quit]).map_err(|e| e.to_string())?;
 
     TrayIconBuilder::new()
         .icon(icon)
@@ -34,6 +37,9 @@ pub fn init_tray(app: &App) -> Result<(), String> {
             }
             "clock_out" => {
                 let _ = app.emit("tray-clock-out", ());
+            }
+            "week_done" => {
+                let _ = app.emit("tray-toggle-week-done", ());
             }
             "quit" => {
                 app.exit(0);

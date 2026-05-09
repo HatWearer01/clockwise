@@ -120,6 +120,8 @@ describe("settings store", () => {
       expect(mockInvoke).toHaveBeenCalledWith("save_app_settings", {
         settings: expect.objectContaining({ notifications_enabled: false }),
       });
+      expect(mockInvoke).toHaveBeenCalledWith("get_status");
+      expect(mockInvoke).toHaveBeenCalledWith("check_notifications");
     });
 
     it("applies window opacity to CSS variable", async () => {

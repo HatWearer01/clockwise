@@ -34,8 +34,6 @@ export default function TasksTab() {
 
   const [weekOffset, setWeekOffset] = useState(0);
   const allWeekDays = weekDayDates(weekOffset, wsd);
-  const weekStart = allWeekDays[0].date;
-  const isCurrentWeek = weekOffset === 0;
   const isPastWeek = weekOffset < 0;
 
   const [selectedDate, setSelectedDate] = useState(isoToday);
@@ -57,11 +55,12 @@ export default function TasksTab() {
   const [editRecId, setEditRecId] = useState<number | null>(null);
 
   const loadWeek = useCallback(async () => {
+    const start = weekDayDates(weekOffset, wsd)[0].date;
     try {
-      const data = await apiGetTasksForWeek(weekStart);
+      const data = await apiGetTasksForWeek(start);
       setWeekData(data ?? null);
     } catch { /* ignore */ }
-  }, [weekStart]);
+  }, [weekOffset, wsd]);
 
   const loadRecurring = useCallback(async () => {
     try {
@@ -74,15 +73,16 @@ export default function TasksTab() {
   useEffect(() => { void loadRecurring(); }, [loadRecurring]);
 
   useEffect(() => {
-    const dayInWeek = allWeekDays.find((d) => d.date === isoToday);
-    if (isCurrentWeek && dayInWeek) {
+    const days = weekDayDates(weekOffset, wsd);
+    const dayInWeek = days.find((d) => d.date === isoToday);
+    if (weekOffset === 0 && dayInWeek) {
       setSelectedDate(isoToday);
     } else {
-      setSelectedDate(allWeekDays[0].date);
+      setSelectedDate(days[0].date);
     }
     setRolloverTaskId(null);
     setEditingId(null);
-  }, [weekOffset]);
+  }, [weekOffset, wsd, isoToday]);
 
   const tasks: DailyTask[] = weekData?.days[selectedDate] ?? [];
   const isToday = selectedDate === isoToday;

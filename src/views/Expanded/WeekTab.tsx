@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import {
   apiGetDailyTasks,
   apiGetStatsSummary,
@@ -72,33 +72,6 @@ export default function WeekTab() {
     } catch { /* ignore */ }
   }
 
-  const loadWeekData = useCallback(async () => {
-    try {
-      setError(null);
-      const weekData = await apiGetWeekSummary(weekStart, wsd);
-      setDays(weekData);
-      if (isCurrentWeek) {
-        const doneStatus = await apiIsWeekDone();
-        setWeekDone(doneStatus);
-      } else {
-        setWeekDone(false);
-      }
-    } catch (e) {
-      setError(
-        typeof e === "object" && e && "message" in e
-          ? String((e as { message: unknown }).message)
-          : "Failed to load data",
-      );
-    }
-  }, [weekStart, isCurrentWeek, wsd]);
-
-  const loadStats = useCallback(async () => {
-    try {
-      const statsData = await apiGetStatsSummary(wsd);
-      setStats(statsData);
-    } catch { /* ignore */ }
-  }, [wsd]);
-
   async function showReview() {
     try {
       const r = await apiGetWeeklyReview(wsd, weekStart);
@@ -106,8 +79,36 @@ export default function WeekTab() {
     } catch { /* ignore */ }
   }
 
-  useEffect(() => { void loadWeekData(); }, [loadWeekData]);
-  useEffect(() => { void loadStats(); }, [loadStats]);
+  useEffect(() => {
+    void (async () => {
+      try {
+        setError(null);
+        const weekData = await apiGetWeekSummary(weekStart, wsd);
+        setDays(weekData);
+        if (isCurrentWeek) {
+          const doneStatus = await apiIsWeekDone();
+          setWeekDone(doneStatus);
+        } else {
+          setWeekDone(false);
+        }
+      } catch (e) {
+        setError(
+          typeof e === "object" && e && "message" in e
+            ? String((e as { message: unknown }).message)
+            : "Failed to load data",
+        );
+      }
+    })();
+  }, [weekStart, isCurrentWeek, wsd]);
+
+  useEffect(() => {
+    void (async () => {
+      try {
+        const statsData = await apiGetStatsSummary(wsd);
+        setStats(statsData);
+      } catch { /* ignore */ }
+    })();
+  }, [wsd]);
 
   useEffect(() => {
     if (!isShiftMode) return;
@@ -152,10 +153,8 @@ export default function WeekTab() {
   const totalCoverage = days.reduce((s, d) => s + d.shift_coverage_ms, 0);
   const remainingMs = Math.max(0, totalPlanned - totalActual);
   const daysWorked = days.filter((d) => d.actual_ms > 60_000).length;
-  const daysPresent = days.filter((d) => d.shift_coverage_ms > 60_000).length;
   const daysPlanned = days.filter((d) => d.planned_ms > 0).length;
   const completion = pct(totalActual, totalPlanned);
-  const coveragePct = pct(totalCoverage, totalPlanned);
   const isOver = totalActual > totalPlanned && totalPlanned > 0;
 
   const weekTaskTotal = Object.values(weekTaskCounts).reduce((s, c) => s + c.total, 0);
@@ -221,9 +220,11 @@ export default function WeekTab() {
             {isShiftMode ? (
               <>
                 <article>
-                  <span className="today-stat-label">Shift coverage</span>
-                  <strong>{formatHoursMinutes(totalCoverage)}</strong>
-                  <span className="muted">of {formatHoursMinutes(totalPlanned)} scheduled</span>
+                  <span className="today-stat-label">Hours logged</span>
+                  <strong>{formatHoursMinutes(totalActual)}</strong>
+                  <span className="muted">
+                    of {formatHoursMinutes(totalPlanned)} planned · {formatHoursMinutes(totalCoverage)} in shift hours
+                  </span>
                 </article>
                 <article>
                   <span className="today-stat-label">Tasks</span>
@@ -231,9 +232,9 @@ export default function WeekTab() {
                   <span className="muted">done this week</span>
                 </article>
                 <article>
-                  <span className="today-stat-label">Days present</span>
-                  <strong>{daysPresent} / {daysPlanned}</strong>
-                  <span className="muted">{weekDone ? "Week done" : `${coveragePct}% coverage`}</span>
+                  <span className="today-stat-label">Days worked</span>
+                  <strong>{daysWorked} / {daysPlanned}</strong>
+                  <span className="muted">{weekDone ? "Week done" : `${completion}% of planned hours`}</span>
                 </article>
               </>
             ) : (
@@ -275,7 +276,7 @@ export default function WeekTab() {
 
           <div className="week-list">
             {days.map((day, idx) => {
-              const dayMs = isShiftMode ? day.shift_coverage_ms : day.actual_ms;
+              const dayMs = day.actual_ms;
               const progress = pct(dayMs, day.planned_ms);
               const isOff = day.planned_ms === 0;
               const isToday = isCurrentWeek && day.day_of_week === todayDow;
@@ -310,7 +311,11 @@ export default function WeekTab() {
                       {isOff
                         ? "off"
                         : isShiftMode
-                          ? `${formatHoursMinutes(day.shift_coverage_ms)} / ${formatHoursMinutes(day.planned_ms)}${dtc ? ` · ${dtc.done}/${dtc.total} tasks` : ""}`
+                          ? `${formatHoursMinutes(day.actual_ms)} / ${formatHoursMinutes(day.planned_ms)}${
+                              day.shift_coverage_ms < day.actual_ms
+                                ? ` (${formatHoursMinutes(day.shift_coverage_ms)} in shift)`
+                                : ""
+                            }${dtc ? ` · ${dtc.done}/${dtc.total} tasks` : ""}`
                           : `${formatHoursMinutes(day.actual_ms)} / ${formatHoursMinutes(day.planned_ms)}`}
                     </span>
                   </div>

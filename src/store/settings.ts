@@ -1,6 +1,7 @@
 import { create } from "zustand";
-import { apiGetAppSettings, apiSaveAppSettings, apiSetMode } from "../lib/tauri";
+import { apiCheckNotifications, apiGetAppSettings, apiSaveAppSettings, apiSetMode } from "../lib/tauri";
 import type { AppSettings } from "../types";
+import { useTimerStore } from "./timer";
 
 export type AppMode = "compact" | "expanded" | "fullscreen";
 export type ExpandedTab = "today" | "tasks" | "schedule" | "week" | "settings";
@@ -110,6 +111,9 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
       set({ appSettings: merged });
       applyWindowOpacity(merged.window_opacity);
       await apiSaveAppSettings(merged);
+      // get_status / notifications read accountability_mode, week boundaries, etc. from DB — refresh so Today/Compact stay in sync without waiting for the 30s poll.
+      void useTimerStore.getState().refreshStatus();
+      void apiCheckNotifications().catch(() => {});
     } catch {
       // Keep optimistic state so UI stays responsive.
     } finally {

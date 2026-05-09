@@ -74,8 +74,8 @@ describe("WeekTab", () => {
       expect(screen.getByText("This Week")).toBeInTheDocument();
     });
 
-    expect(screen.getByText("Shift coverage")).toBeInTheDocument();
-    expect(screen.getByText(/Days present/)).toBeInTheDocument();
+    expect(screen.getByText("Hours logged")).toBeInTheDocument();
+    expect(screen.getByText(/Days worked/)).toBeInTheDocument();
   });
 
   it("shows day labels", async () => {

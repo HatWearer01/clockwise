@@ -6,13 +6,14 @@ import WeeklyReview from "./components/WeeklyReview";
 import { useScheduleStore } from "./store/schedule";
 import { useSettingsStore } from "./store/settings";
 import { useTimerStore } from "./store/timer";
-import { apiCheckNotifications, apiGetLastReviewedWeek, apiGetWeeklyReview, apiSetLastReviewedWeek, apiShowWindow } from "./lib/tauri";
+import { apiCheckNotifications, apiGetLastReviewedWeek, apiGetWeeklyReview, apiIsWeekDone, apiMarkWeekDone, apiSetLastReviewedWeek, apiShowWindow } from "./lib/tauri";
 import { parseTimeInput, timeInputValue, weekDayDates } from "./lib/time";
 import Titlebar from "./components/Titlebar";
 import type { WeeklyReview as WeeklyReviewType } from "./types";
 
 function App() {
   const { mode } = useSettingsStore();
+  const weekStartDay = useSettingsStore((s) => s.appSettings.week_start_day);
   const timerStore = useTimerStore();
   const scheduleStore = useScheduleStore();
   const error = timerStore.error || scheduleStore.error;
@@ -49,7 +50,7 @@ function App() {
     }
     const timer = setTimeout(checkWeeklyReview, 2000);
     return () => clearTimeout(timer);
-  }, []);
+  }, [weekStartDay]);
 
   useEffect(() => {
     useSettingsStore.getState().init();
@@ -103,6 +104,7 @@ function App() {
   useEffect(() => {
     let unlistenClockIn: (() => void) | undefined;
     let unlistenClockOut: (() => void) | undefined;
+    let unlistenWeekDone: (() => void) | undefined;
     let unlistenAway: (() => void) | undefined;
     let unlistenBack: (() => void) | undefined;
     let unlistenAction: (() => void) | undefined;
@@ -116,6 +118,13 @@ function App() {
       void timerStore.clockOut();
     }).then((fn) => {
       unlistenClockOut = fn;
+    });
+    void listen("tray-toggle-week-done", async () => {
+      const current = await apiIsWeekDone();
+      await apiMarkWeekDone(!current);
+      void timerStore.refreshStatus();
+    }).then((fn) => {
+      unlistenWeekDone = fn;
     });
     void listen<{ reason?: string }>("session-away", () => {
       const state = useTimerStore.getState();
@@ -143,6 +152,7 @@ function App() {
     return () => {
       unlistenClockIn?.();
       unlistenClockOut?.();
+      unlistenWeekDone?.();
       unlistenAway?.();
       unlistenBack?.();
       unlistenAction?.();

@@ -129,6 +129,7 @@ pub fn run() {
             commands::tasks::toggle_subtask,
             commands::tasks::delete_subtask,
             notifications::check_notifications,
+            notifications::get_notification_history,
             window::set_mode,
             window::show_window
         ])
