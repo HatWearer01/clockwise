@@ -28,6 +28,7 @@ Built with Tauri 2, React 19, and TypeScript. Windows native.
 - **Accountability modes** — choose between "shift" (focus on being present during scheduled blocks) and "target" (focus on hitting X hours regardless of when); shift mode weights the progress ring (and related bars) toward **both** in-window coverage and total hours vs your planned shift length so late or off-window work still moves the dial; task progress and stats stay shift-oriented; target mode shows traditional worked/remaining/overtime stats; affects clock-in button color, progress ring, stats, and notification behavior
 - **Settings** — always-on-top toggle, window opacity slider, week start day (Monday/Sunday), 12h/24h time format, autostart, notification and idle nudge controls with sub-options, accountability mode (shift/target)
 - **Lock/sleep detection** — detects Windows session lock/unlock and sleep/wake events; pauses tracking context so idle time isn't counted
+- **Always-on architecture** — designed to stay open indefinitely without restarting; automatically detects midnight crossings (reloads status, schedule, tasks, and triggers weekly review at week boundaries), handles sleep/wake and clock jumps (force-refreshes if tick gap > 5s), guards against stale state (force-refreshes if last poll > 60s old), runs daily DB maintenance (prunes old notification logs, WAL checkpoint, query planner optimize), and suppresses notification bursts for 5 minutes after midnight
 
 ## Behavior Notes
 
@@ -40,6 +41,11 @@ A few cross-cutting behaviors to be aware of when using or contributing to Clock
 - **Changing "Week starts on" in Settings** takes effect immediately for the Week tab, weekly review, and auto week-done logic. However, old `done_week_*` meta keys stored under the previous anchor are not migrated. If you switch from Monday to Sunday (or vice versa) mid-week, toggle **Done for the week** once to clear any stale state.
 - **Weekly review modal** is shown once per new week on first app open. If you change **Week starts on**, the review may re-trigger because the stored "last reviewed" anchor no longer matches the new week boundary. This is by design — you get a fresh review under the new cadence.
 - **Settings changes propagate immediately.** Switching **accountability mode** or **week start day** triggers an instant status refresh and notification re-check so the Today tab, Compact view, and notification behavior update without waiting for the 30-second poll.
+- **Always-on: day change.** When midnight crosses while the app is open, both the frontend (1s tick detects date mismatch) and backend (30s loop emits `day-changed` event) trigger a coordinated reload — status, schedule, notifications, and weekly review check all refresh automatically. No restart needed.
+- **Always-on: sleep/wake recovery.** If the system sleeps or the clock jumps (tick gap > 5 seconds), the app force-refreshes all state immediately on wake. This supplements the Windows lock/sleep listener for cases like hibernate or NTP adjustments.
+- **Always-on: staleness guard.** If the periodic 30s status poll fails or stalls, the 1s tick forces a refresh once the last successful poll exceeds 60 seconds — the live timer display never drifts indefinitely.
+- **Always-on: midnight notification grace.** After a day transition, notifications are suppressed for 5 minutes to prevent a burst of stale reminders (e.g. "clock in" at 00:01).
+- **Always-on: daily DB maintenance.** Once per day on the first detected day change, old notification logs (> 30 days) are pruned, the WAL file is checkpointed, and `PRAGMA optimize` refreshes query planner statistics.
 
 ## Tech Stack
 

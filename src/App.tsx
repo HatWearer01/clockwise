@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { emit, listen } from "@tauri-apps/api/event";
 import Expanded from "./views/Expanded";
 import Compact from "./views/Compact";
@@ -7,7 +7,7 @@ import { useScheduleStore } from "./store/schedule";
 import { useSettingsStore } from "./store/settings";
 import { useTimerStore } from "./store/timer";
 import { apiCheckNotifications, apiGetLastReviewedWeek, apiGetWeeklyReview, apiIsWeekDone, apiMarkWeekDone, apiSetLastReviewedWeek, apiShowWindow } from "./lib/tauri";
-import { parseTimeInput, timeInputValue, weekDayDates } from "./lib/time";
+import { parseTimeInput, timeInputValue, todayISODate, weekDayDates } from "./lib/time";
 import Titlebar from "./components/Titlebar";
 import type { WeeklyReview as WeeklyReviewType } from "./types";
 
@@ -20,6 +20,9 @@ function App() {
   const [recoveryEditTime, setRecoveryEditTime] = useState<string>("");
   const [weeklyReview, setWeeklyReview] = useState<WeeklyReviewType | null>(null);
 
+  const lastKnownDateRef = useRef(todayISODate());
+  const lastTickMsRef = useRef(Date.now());
+
   const suggestedRecoveryTime = useMemo(() => {
     if (!timerStore.pendingRecovery) return "";
     return timeInputValue(Math.floor((timerStore.pendingRecovery.suggested_end_at / 60000) % 1440));
@@ -31,25 +34,34 @@ function App() {
     }
   }, [suggestedRecoveryTime, timerStore.pendingRecovery]);
 
-  useEffect(() => {
-    async function checkWeeklyReview() {
-      try {
-        const { appSettings } = useSettingsStore.getState();
-        const wsd = appSettings.week_start_day as 0 | 1;
-        const thisWeekDays = weekDayDates(0, wsd);
-        const thisWeekStart = thisWeekDays[0].date;
-        const lastReviewed = await apiGetLastReviewedWeek();
-        if (lastReviewed !== thisWeekStart) {
-          const review = await apiGetWeeklyReview(wsd);
-          if (review && (review.total_actual_ms > 0 || review.total_target_ms > 0)) {
-            setWeeklyReview(review);
-          }
-          await apiSetLastReviewedWeek(thisWeekStart);
+  async function checkWeeklyReview() {
+    try {
+      const { appSettings } = useSettingsStore.getState();
+      const wsd = appSettings.week_start_day as 0 | 1;
+      const thisWeekDays = weekDayDates(0, wsd);
+      const thisWeekStart = thisWeekDays[0].date;
+      const lastReviewed = await apiGetLastReviewedWeek();
+      if (lastReviewed !== thisWeekStart) {
+        const review = await apiGetWeeklyReview(wsd);
+        if (review && (review.total_actual_ms > 0 || review.total_target_ms > 0)) {
+          setWeeklyReview(review);
         }
-      } catch { /* ignore */ }
-    }
-    const timer = setTimeout(checkWeeklyReview, 2000);
+        await apiSetLastReviewedWeek(thisWeekStart);
+      }
+    } catch { /* ignore */ }
+  }
+
+  function handleDayChange() {
+    void timerStore.refreshStatus();
+    void scheduleStore.load();
+    void apiCheckNotifications().catch(() => {});
+    void checkWeeklyReview();
+  }
+
+  useEffect(() => {
+    const timer = setTimeout(() => void checkWeeklyReview(), 2000);
     return () => clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [weekStartDay]);
 
   useEffect(() => {
@@ -62,9 +74,38 @@ function App() {
   }, []);
 
   useEffect(() => {
+    let refreshInFlight = false;
+
     const tick = window.setInterval(() => {
+      const now = Date.now();
+      const elapsed = now - lastTickMsRef.current;
+      lastTickMsRef.current = now;
+
       timerStore.tick();
+
+      // Clock discontinuity: gap > 5s means sleep/wake or clock jump
+      if (elapsed > 5000) {
+        void timerStore.refreshStatus();
+        void scheduleStore.load();
+        void apiCheckNotifications().catch(() => {});
+      }
+
+      // Day-change detection
+      const currentDate = todayISODate();
+      if (currentDate !== lastKnownDateRef.current) {
+        lastKnownDateRef.current = currentDate;
+        handleDayChange();
+      }
+
+      // Staleness guard: force refresh if last status is > 60s old
       const state = useTimerStore.getState();
+      const staleness = state.nowMs - state.statusFetchedAt;
+      if (staleness > 60_000 && !refreshInFlight) {
+        refreshInFlight = true;
+        void timerStore.refreshStatus().finally(() => { refreshInFlight = false; });
+      }
+
+      // Boundary crossing check
       if (
         state.status?.next_boundary_ms &&
         state.nowMs >= state.status.next_boundary_ms &&
@@ -74,7 +115,8 @@ function App() {
       }
     }, 1000);
     return () => window.clearInterval(tick);
-  }, [timerStore]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [timerStore, scheduleStore]);
 
   useEffect(() => {
     const statusRefresh = window.setInterval(() => {
@@ -108,6 +150,7 @@ function App() {
     let unlistenAway: (() => void) | undefined;
     let unlistenBack: (() => void) | undefined;
     let unlistenAction: (() => void) | undefined;
+    let unlistenDayChanged: (() => void) | undefined;
 
     void listen("tray-clock-in", () => {
       void timerStore.clockIn();
@@ -148,6 +191,12 @@ function App() {
     }).then((fn) => {
       unlistenAction = fn;
     });
+    void listen("day-changed", () => {
+      lastKnownDateRef.current = todayISODate();
+      handleDayChange();
+    }).then((fn) => {
+      unlistenDayChanged = fn;
+    });
 
     return () => {
       unlistenClockIn?.();
@@ -156,7 +205,9 @@ function App() {
       unlistenAway?.();
       unlistenBack?.();
       unlistenAction?.();
+      unlistenDayChanged?.();
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [timerStore]);
 
   return (

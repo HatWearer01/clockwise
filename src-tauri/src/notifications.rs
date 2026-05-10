@@ -535,13 +535,43 @@ pub fn recalculate_notifications(app: &AppHandle) {
 
 pub fn start_notification_timer(app: &AppHandle) {
     let app = app.clone();
-    std::thread::spawn(move || loop {
-        std::thread::sleep(std::time::Duration::from_secs(30));
-        let state = app.state::<AppState>().inner().clone();
-        let app = app.clone();
-        tauri::async_runtime::spawn(async move {
-            check_and_notify(&app, &state).await;
-        });
+    std::thread::spawn(move || {
+        let mut last_date = Local::now().format("%Y-%m-%d").to_string();
+        let mut day_transition_at: Option<i64> = None;
+
+        loop {
+            std::thread::sleep(std::time::Duration::from_secs(30));
+
+            let now = Local::now();
+            let current_date = now.format("%Y-%m-%d").to_string();
+
+            if current_date != last_date {
+                last_date = current_date;
+                day_transition_at = Some(now.timestamp_millis());
+                log::info!("[notify] day changed to {}, emitting event + running maintenance", &last_date);
+                let _ = app.emit("day-changed", ());
+
+                let state = app.state::<AppState>().inner().clone();
+                tauri::async_runtime::spawn(async move {
+                    crate::db::run_daily_maintenance(&state.pool).await;
+                });
+            }
+
+            // Grace period: skip notifications for 5 minutes after midnight transition
+            if let Some(transition_ts) = day_transition_at {
+                if now.timestamp_millis() - transition_ts < 5 * 60 * 1000 {
+                    log::debug!("[notify] within 5min grace period after day change, skipping");
+                    continue;
+                }
+                day_transition_at = None;
+            }
+
+            let state = app.state::<AppState>().inner().clone();
+            let app = app.clone();
+            tauri::async_runtime::spawn(async move {
+                check_and_notify(&app, &state).await;
+            });
+        }
     });
 }
 

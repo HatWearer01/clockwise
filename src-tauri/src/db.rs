@@ -166,6 +166,18 @@ pub fn start_of_workday_window() -> Result<(i64, i64), String> {
     Ok((start.timestamp_millis(), end.timestamp_millis()))
 }
 
+/// Runs daily DB maintenance: prunes old notification logs, checkpoints WAL, optimizes query planner.
+pub async fn run_daily_maintenance(pool: &SqlitePool) {
+    let cutoff = Local::now().timestamp_millis() - 30 * 24 * 60 * 60 * 1000; // 30 days ago
+    let _ = sqlx::query("DELETE FROM notification_log WHERE created_at < ?")
+        .bind(cutoff)
+        .execute(pool)
+        .await;
+    let _ = sqlx::query("PRAGMA wal_checkpoint(TRUNCATE)").execute(pool).await;
+    let _ = sqlx::query("PRAGMA optimize").execute(pool).await;
+    log::info!("[db] daily maintenance complete: pruned logs older than 30d, WAL checkpoint, optimize");
+}
+
 pub async fn init_db(pool: &SqlitePool) -> Result<(), String> {
     // Ensure all tables exist (IF NOT EXISTS makes this idempotent with plugin migrations)
     for stmt in BASE_SCHEMA_SQL.split(';') {
