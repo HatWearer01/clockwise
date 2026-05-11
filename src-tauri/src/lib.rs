@@ -34,14 +34,34 @@ pub fn run() {
         ))
         .plugin(tauri_plugin_opener::init())
         .setup(|app| {
-            let exe_dir = std::env::current_exe()
-                .map_err(|e| e.to_string())?
-                .parent()
-                .ok_or("Cannot determine exe directory")?
-                .to_path_buf();
-            let data_dir = exe_dir.join("data");
+            let data_dir = dirs::document_dir()
+                .ok_or("Cannot determine Documents directory")?
+                .join("Clockwise");
             fs::create_dir_all(&data_dir).map_err(|e| e.to_string())?;
+
+            // Migrate from legacy location (exe_dir/data/) if new location is empty
             let db_path = data_dir.join("clockwise.db");
+            if !db_path.exists() {
+                if let Ok(exe) = std::env::current_exe() {
+                    if let Some(exe_dir) = exe.parent() {
+                        let legacy_db = exe_dir.join("data").join("clockwise.db");
+                        if legacy_db.exists() {
+                            log::info!("[setup] migrating DB from {:?} to {:?}", legacy_db, db_path);
+                            let _ = fs::copy(&legacy_db, &db_path);
+                            // Also copy WAL/SHM if present
+                            let legacy_wal = exe_dir.join("data").join("clockwise.db-wal");
+                            let legacy_shm = exe_dir.join("data").join("clockwise.db-shm");
+                            if legacy_wal.exists() {
+                                let _ = fs::copy(&legacy_wal, data_dir.join("clockwise.db-wal"));
+                            }
+                            if legacy_shm.exists() {
+                                let _ = fs::copy(&legacy_shm, data_dir.join("clockwise.db-shm"));
+                            }
+                        }
+                    }
+                }
+            }
+
             let db_url = db::sqlite_url_from_path(&db_path);
             let pool = tauri::async_runtime::block_on(db::connect_pool(&db_url))?;
 

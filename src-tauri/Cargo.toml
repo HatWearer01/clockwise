@@ -37,6 +37,7 @@ windows = { version = "0.61", features = [
 tauri-plugin-sql = { version = "2.4.0", features = ["sqlite"] }
 sqlx = { version = "0.8.6", features = ["sqlite", "runtime-tokio-rustls"] }
 log = "0.4"
+dirs = "6"
 
 [dev-dependencies]
 tokio = { version = "1", features = ["rt", "macros"] }

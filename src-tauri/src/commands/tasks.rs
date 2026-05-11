@@ -117,6 +117,14 @@ fn should_occur_on(rt: &RecurringTask, date: &str) -> bool {
 }
 
 async fn ensure_recurring_instances(pool: &SqlitePool, date: &str) -> Result<(), ApiError> {
+    // Auto-deactivate recurring tasks whose end_date has passed (best-effort, never blocks task display)
+    let _ = sqlx::query(
+        "UPDATE recurring_task SET active = 0 WHERE active = 1 AND end_date IS NOT NULL AND end_date < ?",
+    )
+    .bind(date)
+    .execute(pool)
+    .await;
+
     let recs = sqlx::query(
         "SELECT id, text, recurrence_type, recurrence_days, interval_days, start_date, end_date, created_at, active
          FROM recurring_task WHERE active = 1",

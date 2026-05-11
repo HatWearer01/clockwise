@@ -53,20 +53,26 @@ export default function TasksTab() {
   const [newRecInterval, setNewRecInterval] = useState(2);
   const [newRecEndDate, setNewRecEndDate] = useState("");
   const [editRecId, setEditRecId] = useState<number | null>(null);
+  const [recError, setRecError] = useState<string | null>(null);
+  const [deleteConfirmId, setDeleteConfirmId] = useState<number | null>(null);
 
   const loadWeek = useCallback(async () => {
     const start = weekDayDates(weekOffset, wsd)[0].date;
     try {
       const data = await apiGetTasksForWeek(start);
       setWeekData(data ?? null);
-    } catch { /* ignore */ }
+    } catch (e) {
+      console.error("[TasksTab] loadWeek failed:", e);
+    }
   }, [weekOffset, wsd]);
 
   const loadRecurring = useCallback(async () => {
     try {
       const list = await apiGetRecurringTasks();
       setRecurringTasks(list ?? []);
-    } catch { /* ignore */ }
+    } catch (e) {
+      console.error("[TasksTab] loadRecurring failed:", e);
+    }
   }, []);
 
   useEffect(() => { void loadWeek(); }, [loadWeek]);
@@ -133,14 +139,22 @@ export default function TasksTab() {
     } catch { /* ignore */ }
   }
 
+  function extractError(e: unknown, fallback: string): string {
+    if (e instanceof Error) return e.message;
+    if (typeof e === "string") return e;
+    if (e && typeof e === "object" && "message" in e) return String((e as { message: unknown }).message);
+    return fallback;
+  }
+
   async function handleAddRecurring() {
     const text = newRecText.trim();
     if (!text) return;
+    setRecError(null);
     const days = newRecType === "specific_days" ? newRecDays.join(",") : null;
     const interval = newRecType === "every_n_days" ? newRecInterval : null;
     const endDate = newRecEndDate || null;
     try {
-      await apiAddRecurringTask(text, newRecType, days, interval, selectedDate, endDate);
+      await apiAddRecurringTask(text, newRecType, days, interval, isoToday, endDate);
       setNewRecText("");
       setNewRecType("daily");
       setNewRecDays([]);
@@ -148,23 +162,32 @@ export default function TasksTab() {
       setNewRecEndDate("");
       await loadRecurring();
       await loadWeek();
-    } catch { /* ignore */ }
+    } catch (e) {
+      setRecError(extractError(e, "Failed to add recurring task"));
+    }
   }
 
   async function handleToggleRecActive(rt: RecurringTask) {
+    setRecError(null);
     try {
       await apiUpdateRecurringTask(rt.id, rt.text, rt.recurrence_type as RecurrenceType, rt.recurrence_days, rt.interval_days, rt.end_date, !rt.active);
       await loadRecurring();
       await loadWeek();
-    } catch { /* ignore */ }
+    } catch (e) {
+      setRecError(extractError(e, "Failed to update task"));
+    }
   }
 
-  async function handleDeleteRecurring(id: number) {
+  async function handleDeleteRecurring(id: number, deleteInstances: boolean) {
+    setRecError(null);
+    setDeleteConfirmId(null);
     try {
-      await apiDeleteRecurringTask(id, false);
+      await apiDeleteRecurringTask(id, deleteInstances);
       await loadRecurring();
       await loadWeek();
-    } catch { /* ignore */ }
+    } catch (e) {
+      setRecError(extractError(e, "Failed to delete task"));
+    }
   }
 
   function toggleDowSelection(d: number) {
@@ -363,22 +386,36 @@ export default function TasksTab() {
         <div className="recurring-manager">
           <h3 style={{ margin: "0 0 6px" }}>Recurring Tasks</h3>
 
-          {recurringTasks.length > 0 && (
+          {recError && (
+            <button className="banner banner-error" style={{ fontSize: "0.8rem", marginBottom: 6 }} onClick={() => setRecError(null)}>
+              {recError}
+            </button>
+          )}
+
+          {recurringTasks.filter((rt) => !(rt.end_date && rt.end_date < isoToday)).length > 0 && (
             <ul className="recurring-list">
-              {recurringTasks.map((rt) => (
-                <li key={rt.id} className={`recurring-item ${rt.active ? "" : "recurring-inactive"}`}>
+              {recurringTasks.filter((rt) => !(rt.end_date && rt.end_date < isoToday)).map((rt) => {
+                const isExpired = false;
+                return (
+                <li key={rt.id} className={`recurring-item ${rt.active && !isExpired ? "" : "recurring-inactive"}`}>
                   {editRecId === rt.id ? (
                     <RecurringEditForm
                       initial={rt}
                       onSave={async (updated) => {
-                        await apiUpdateRecurringTask(
-                          rt.id, updated.text, updated.recurrence_type,
-                          updated.recurrence_days, updated.interval_days,
-                          updated.end_date, updated.active,
-                        );
-                        setEditRecId(null);
-                        await loadRecurring();
-                        await loadWeek();
+                        setRecError(null);
+                        try {
+                          await apiUpdateRecurringTask(
+                            rt.id, updated.text, updated.recurrence_type,
+                            updated.recurrence_days, updated.interval_days,
+                            updated.end_date, updated.active,
+                          );
+                          setEditRecId(null);
+                          await loadRecurring();
+                          await loadWeek();
+                        } catch (e) {
+                          const msg = e instanceof Error ? e.message : typeof e === "string" ? e : "Failed to save";
+                          setRecError(msg);
+                        }
                       }}
                       onCancel={() => setEditRecId(null)}
                     />
@@ -388,6 +425,8 @@ export default function TasksTab() {
                         <span className="recurring-item-text">{rt.text}</span>
                         <span className="muted" style={{ fontSize: "0.75rem" }}>
                           {recurrenceDescription(rt)}
+                          {isExpired && <span style={{ color: "var(--color-warning, #d97706)", marginLeft: 6 }}>Expired {rt.end_date}</span>}
+                          {!rt.active && !isExpired && <span style={{ marginLeft: 6 }}>(paused)</span>}
                         </span>
                       </div>
                       <div className="recurring-item-actions">
@@ -399,12 +438,25 @@ export default function TasksTab() {
                         >
                           {rt.active ? "⏸" : "▶"}
                         </button>
-                        <button className="ghost daily-task-btn" title="Delete" onClick={() => void handleDeleteRecurring(rt.id)}>×</button>
+                        {deleteConfirmId === rt.id ? (
+                          <span style={{ display: "flex", gap: 2, fontSize: "0.72rem" }}>
+                            <button className="chip" style={{ padding: "1px 5px", fontSize: "0.7rem" }} onClick={() => void handleDeleteRecurring(rt.id, true)}>
+                              + instances
+                            </button>
+                            <button className="chip" style={{ padding: "1px 5px", fontSize: "0.7rem" }} onClick={() => void handleDeleteRecurring(rt.id, false)}>
+                              Keep instances
+                            </button>
+                            <button className="ghost daily-task-btn" onClick={() => setDeleteConfirmId(null)}>✕</button>
+                          </span>
+                        ) : (
+                          <button className="ghost daily-task-btn" title="Delete" onClick={() => setDeleteConfirmId(rt.id)}>×</button>
+                        )}
                       </div>
                     </>
                   )}
                 </li>
-              ))}
+                );
+              })}
             </ul>
           )}
 
@@ -456,7 +508,7 @@ export default function TasksTab() {
               </div>
             )}
             <div className="recurring-end-row">
-              <label className="muted" style={{ fontSize: "0.78rem" }}>End date (optional):</label>
+              <label className="muted" style={{ fontSize: "0.78rem" }}>End date (leave blank for indefinite):</label>
               <input
                 type="date"
                 className="daily-tasks-input"
@@ -528,8 +580,21 @@ function RecurringEditForm({
         </div>
       )}
       <div className="recurring-end-row">
-        <label className="muted" style={{ fontSize: "0.78rem" }}>End date:</label>
-        <input type="date" className="daily-tasks-input" value={endDate} onChange={(e) => setEndDate(e.currentTarget.value)} style={{ width: 140 }} />
+        <label className="muted" style={{ fontSize: "0.78rem" }}>End date (blank = indefinite):</label>
+        <div style={{ display: "flex", gap: 4, alignItems: "center" }}>
+          <input type="date" className="daily-tasks-input" value={endDate} onChange={(e) => setEndDate(e.currentTarget.value)} style={{ width: 140 }} />
+          {endDate && (
+            <button
+              className="ghost daily-task-btn"
+              title="Clear end date (reactivate)"
+              onClick={() => { setEndDate(""); setActive(true); }}
+              type="button"
+              style={{ fontSize: "0.75rem" }}
+            >
+              ✕
+            </button>
+          )}
+        </div>
       </div>
       <label className="daily-task-label" style={{ gap: 4, fontSize: "0.82rem" }}>
         <input type="checkbox" checked={active} onChange={() => setActive(!active)} />
