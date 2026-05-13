@@ -4,7 +4,7 @@ A personal time-tracking desktop app for managing your own work hours. Clock in 
 
 Built for anyone who wants more structure in their workday — especially remote workers who need help establishing boundaries. Set flexible daily hour targets, get nudged when you drift from your schedule, see pattern insights (late nights, weekend creep, cramming), and review your week with an automatic summary.
 
-Built with Tauri 2, React 19, and TypeScript. Windows native.
+Built with Tauri 2, React 19, and TypeScript. Windows native. Also available as an **Android app** — see [`mobile/README.md`](mobile/README.md) for the Expo (React Native) port with full feature parity.
 
 ## Features
 
@@ -54,6 +54,7 @@ A few cross-cutting behaviors to be aware of when using or contributing to Clock
 - **Frontend:** React 19, TypeScript, Vite 7, Tailwind CSS 4, Zustand, Framer Motion, ESLint
 - **Backend:** Rust (Edition 2021), Tauri 2, SQLite via sqlx
 - **Desktop:** System tray, notifications, autostart, lock/sleep detection (Windows)
+- **Mobile:** Expo (React Native), expo-sqlite, expo-notifications, Zustand (Android)
 
 ## Getting Started
 

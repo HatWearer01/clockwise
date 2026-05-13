@@ -1,0 +1,36 @@
+{
+  "expo": {
+    "name": "Clockwise",
+    "slug": "clockwise",
+    "version": "0.1.0",
+    "orientation": "portrait",
+    "scheme": "clockwise",
+    "userInterfaceStyle": "dark",
+    "backgroundColor": "#090d17",
+    "newArchEnabled": true,
+    "android": {
+      "adaptiveIcon": {
+        "backgroundColor": "#090d17"
+      },
+      "package": "com.omerh.clockwise",
+      "navigationBarColor": "#0f1422",
+      "backgroundColor": "#090d17"
+    },
+    "plugins": [
+      "expo-router",
+      "expo-sqlite",
+      "expo-notifications",
+      "expo-font",
+      "expo-asset",
+      [
+        "expo-system-ui",
+        {
+          "backgroundColor": "#090d17"
+        }
+      ]
+    ],
+    "experiments": {
+      "typedRoutes": true
+    }
+  }
+}
