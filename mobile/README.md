@@ -89,6 +89,7 @@ mobile/
 - **Crash recovery**: Heartbeat-based stale session detection on app relaunch
 - **Theme**: Dark and light modes with system preference support
 - **Haptic feedback**: Tactile responses on clock in/out, break, task toggle, and day done
+- **Database import/export**: Transfer your database between desktop and mobile via the Settings tab (export shares a .db file, import replaces the local database with a picked file)
 
 ## Expo Go Limitations
 
@@ -101,4 +102,21 @@ These are wrapped in try/catch blocks and degrade gracefully.
 
 ## Data
 
-Database is stored locally on device via expo-sqlite (`clockwise.db`). Same schema as the desktop app — data is not shared between desktop and mobile.
+Database is stored locally on device via expo-sqlite (`clockwise.db`). Same schema as the desktop app.
+
+### Transferring Data Between Desktop and Mobile
+
+The desktop and mobile databases are fully compatible (identical schema). To transfer:
+
+**Desktop to Mobile:**
+1. Copy `Documents/Clockwise/clockwise.db` from your PC to your phone (USB, cloud drive, etc.)
+2. Open Clockwise mobile, go to Settings > Data > Import Database
+3. Pick the `.db` file — it replaces local data and reloads everything
+
+**Mobile to Desktop:**
+1. Open Clockwise mobile, go to Settings > Data > Export Database
+2. Share/save the exported `.db` file to your PC
+3. Replace `Documents/Clockwise/clockwise.db` on your PC with the exported file
+4. Restart the desktop app
+
+Desktop-only settings (window opacity, always-on-top, autostart, idle nudge) are preserved in the DB but ignored on mobile. Mobile-only keys (heartbeat) are ignored on desktop.

@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import {
+  Alert,
   Platform,
   Pressable,
   ScrollView,
@@ -13,8 +14,11 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import type { ReactNode } from "react";
 import { useSettingsStore } from "../../src/store/settings";
+import { useTimerStore } from "../../src/store/timer";
+import { useScheduleStore } from "../../src/store/schedule";
 import { getColors } from "../../src/lib/theme";
 import { formatMinuteAsTime } from "../../src/lib/time";
+import { exportDatabase, importDatabase } from "../../src/services/backup";
 
 function clampInt(n: number, min: number, max: number): number {
   if (!Number.isFinite(n)) return min;
@@ -441,6 +445,62 @@ export default function SettingsScreen() {
           </View>
         </SectionCard>
 
+        <SectionCard title="Data" colors={c} cardBorder={cardBorder}>
+          <Text style={[rowStyles.rowDesc, { color: c.textMuted, marginBottom: 14 }]}>
+            Import your desktop database or export the mobile database to transfer between devices.
+          </Text>
+
+          <Pressable
+            style={({ pressed }) => [
+              rowStyles.dataBtn,
+              { borderColor: cardBorder, backgroundColor: c.bg, opacity: pressed ? 0.8 : 1 },
+            ]}
+            onPress={async () => {
+              try {
+                await exportDatabase();
+              } catch (e) {
+                Alert.alert("Export Failed", e instanceof Error ? e.message : String(e));
+              }
+            }}
+          >
+            <Ionicons name="share-outline" size={20} color={c.primary} />
+            <View style={{ flex: 1 }}>
+              <Text style={[rowStyles.dataBtnTitle, { color: c.text }]}>Export Database</Text>
+              <Text style={[rowStyles.dataBtnDesc, { color: c.textMuted }]}>Share your mobile data as a .db file</Text>
+            </View>
+            <Ionicons name="chevron-forward" size={16} color={c.textMuted} />
+          </Pressable>
+
+          <Pressable
+            style={({ pressed }) => [
+              rowStyles.dataBtn,
+              { borderColor: cardBorder, backgroundColor: c.bg, opacity: pressed ? 0.8 : 1, marginTop: 10 },
+            ]}
+            onPress={async () => {
+              const result = await importDatabase();
+              if (result.success) {
+                await useSettingsStore.getState().init();
+                await useTimerStore.getState().load();
+                await useScheduleStore.getState().load();
+                Alert.alert("Import Successful", "Database replaced. All data has been loaded from the imported file.");
+              } else if (result.error && result.error !== "No file selected.") {
+                Alert.alert("Import Failed", result.error);
+              }
+            }}
+          >
+            <Ionicons name="download-outline" size={20} color={c.primary} />
+            <View style={{ flex: 1 }}>
+              <Text style={[rowStyles.dataBtnTitle, { color: c.text }]}>Import Database</Text>
+              <Text style={[rowStyles.dataBtnDesc, { color: c.textMuted }]}>Replace mobile data with a .db file from your PC</Text>
+            </View>
+            <Ionicons name="chevron-forward" size={16} color={c.textMuted} />
+          </Pressable>
+
+          <Text style={[rowStyles.quietHint, { color: c.textMuted, marginTop: 12 }]}>
+            Desktop DB location: Documents/Clockwise/clockwise.db
+          </Text>
+        </SectionCard>
+
         {settingsSaving ? (
           <Text style={[rowStyles.saving, { color: c.textMuted }]}>Saving…</Text>
         ) : null}
@@ -519,5 +579,16 @@ function makeRowStyles(_c: ReturnType<typeof getColors>, _dividerColor: string) 
     },
     presetChipText: { fontSize: 13, fontWeight: "800" },
     saving: { textAlign: "center", marginTop: 8, fontSize: 13 },
+    dataBtn: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 12,
+      borderRadius: 14,
+      borderWidth: 1,
+      paddingHorizontal: 14,
+      paddingVertical: 14,
+    },
+    dataBtnTitle: { fontSize: 15, fontWeight: "700" },
+    dataBtnDesc: { fontSize: 12, marginTop: 2 },
   });
 }

@@ -8,8 +8,10 @@
     "userInterfaceStyle": "dark",
     "backgroundColor": "#090d17",
     "newArchEnabled": true,
+    "icon": "./assets/icon.png",
     "android": {
       "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#090d17"
       },
       "package": "com.omerh.clockwise",
@@ -31,6 +33,13 @@
     ],
     "experiments": {
       "typedRoutes": true
-    }
+    },
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "1db36239-9bd8-4a3a-a03b-5445ee8c4c36"
+      }
+    },
+    "owner": "stroungylo"
   }
 }
