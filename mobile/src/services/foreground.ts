@@ -1,18 +1,17 @@
 import * as TaskManager from "expo-task-manager";
 import * as Notifications from "expo-notifications";
 import { getStatus } from "./session";
-import { checkAndNotify } from "./notification";
-import { formatDuration, stateLabel } from "../lib/time";
+import { checkAndNotify, scheduleShiftNotifications } from "./notification";
+import { formatHoursMinutes, stateLabel } from "../lib/time";
 
 const BACKGROUND_TASK_NAME = "clockwise-background-check";
-const NOTIFICATION_CHANNEL_ID = "clockwise-tracking";
 const PERSISTENT_NOTIFICATION_ID = "clockwise-session";
 
 let _tickInterval: ReturnType<typeof setInterval> | null = null;
 
-export async function setupNotificationChannel(): Promise<void> {
+export async function setupNotificationChannels(): Promise<void> {
   try {
-    await Notifications.setNotificationChannelAsync(NOTIFICATION_CHANNEL_ID, {
+    await Notifications.setNotificationChannelAsync("clockwise-tracking", {
       name: "Session Tracking",
       importance: Notifications.AndroidImportance.LOW,
       sound: undefined,
@@ -25,10 +24,18 @@ export async function setupNotificationChannel(): Promise<void> {
       importance: Notifications.AndroidImportance.HIGH,
       sound: "default",
     });
+
+    await Notifications.setNotificationChannelAsync("clockwise-tasks", {
+      name: "Task Reminders",
+      importance: Notifications.AndroidImportance.DEFAULT,
+      sound: "default",
+    });
   } catch {
     // Not available in Expo Go
   }
 }
+
+export { setupNotificationChannels as setupNotificationChannel };
 
 export async function requestPermissions(): Promise<boolean> {
   try {
@@ -51,8 +58,22 @@ export async function updatePersistentNotification(): Promise<void> {
       return;
     }
 
-    const title = stateLabel(status.state);
-    const body = `${formatDuration(status.worked_today_ms)} worked today`;
+    const elapsed = formatHoursMinutes(status.worked_today_ms);
+    let body: string;
+
+    if (status.target_today_ms > 0) {
+      const remaining = Math.max(0, status.target_today_ms - status.worked_today_ms);
+      if (remaining > 0) {
+        body = `${elapsed} elapsed · ${formatHoursMinutes(remaining)} left until target`;
+      } else {
+        const over = status.worked_today_ms - status.target_today_ms;
+        body = `${elapsed} elapsed · target hit! (+${formatHoursMinutes(over)})`;
+      }
+    } else {
+      body = `${elapsed} worked today`;
+    }
+
+    const title = status.state === "on_break" ? "On break" : "Clocked in";
 
     await Notifications.scheduleNotificationAsync({
       identifier: PERSISTENT_NOTIFICATION_ID,
@@ -64,7 +85,7 @@ export async function updatePersistentNotification(): Promise<void> {
         categoryIdentifier: "session",
         data: { type: "persistent" },
       },
-      trigger: null,
+      trigger: { channelId: "clockwise-tracking" },
     });
   } catch {
     // non-fatal
@@ -75,7 +96,7 @@ export function startSessionTicker(): void {
   if (_tickInterval) return;
   _tickInterval = setInterval(async () => {
     await updatePersistentNotification();
-  }, 60_000);
+  }, 30_000);
 
   updatePersistentNotification();
 }
@@ -100,10 +121,6 @@ TaskManager.defineTask(BACKGROUND_TASK_NAME, async () => {
 export async function registerBackgroundTask(): Promise<void> {
   const isRegistered = await TaskManager.isTaskRegisteredAsync(BACKGROUND_TASK_NAME);
   if (isRegistered) return;
-
-  // Note: expo-background-fetch or expo-task-manager background fetch
-  // requires configuration; this is the task definition.
-  // The actual periodic invocation is set up in lifecycle.ts
 }
 
 export { BACKGROUND_TASK_NAME };

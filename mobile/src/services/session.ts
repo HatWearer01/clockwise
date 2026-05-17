@@ -239,6 +239,17 @@ async function tryAutoMarkDayDone(db: SQLiteDatabase): Promise<void> {
   ]);
   if (declined) return;
 
+  const hasActive = await db.getFirstAsync<{ k: number }>(
+    "SELECT 1 AS k FROM session WHERE ended_at IS NULL LIMIT 1"
+  );
+  if (hasActive) return;
+
+  const hasTasks = await db.getFirstAsync<{ k: number }>(
+    "SELECT 1 AS k FROM daily_task WHERE date = ? AND done = 0 LIMIT 1",
+    [dateStr]
+  );
+  if (hasTasks) return;
+
   let tid: number;
   try {
     tid = await activeTemplateId(db);
@@ -538,8 +549,15 @@ export async function getStatus(): Promise<StatusResponse> {
     if (!anyBlock && targetMode && explicitTargetMin > 0 && workedTodayMs < targetTodayMs) {
       stateName = "behind_target";
       nextBoundaryMs = null;
+    } else if (!anyBlock && workedTodayMs > 0) {
+      stateName = "after_shift";
+      nextBoundaryMs = null;
     } else if (!anyBlock) {
-      stateName = "off_day";
+      const hasTasks = await db.getFirstAsync<{ k: number }>(
+        "SELECT 1 AS k FROM daily_task WHERE date = ? AND done = 0 LIMIT 1",
+        [todayISODate()]
+      );
+      stateName = hasTasks ? "before_shift" : "off_day";
       nextBoundaryMs = null;
     } else if (currentBlockEnd !== null) {
       stateName = "in_shift";

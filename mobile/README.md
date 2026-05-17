@@ -47,10 +47,10 @@ mobile/
 │   │   ├── session.ts      # Clock in/out, breaks, status, week/day done, recovery
 │   │   ├── task.ts         # Daily + recurring tasks, subtasks, week queries
 │   │   ├── schedule.ts     # Templates, blocks, day targets, checklist
-│   │   ├── notification.ts # Check-and-notify, quiet hours, dedup, history
+│   │   ├── notification.ts # Scheduled alarms, smart nudges, DND, dedup, history
 │   │   ├── insight.ts      # Pattern detection (late starts, streaks, etc.)
 │   │   ├── settings.ts     # App settings CRUD
-│   │   ├── foreground.ts   # Persistent notification, background task
+│   │   ├── foreground.ts   # Persistent live notification, channels, background task
 │   │   └── lifecycle.ts    # Heartbeat, crash recovery, app state transitions
 │   ├── store/              # Zustand stores (timer, schedule, settings)
 │   ├── lib/                # Utilities (time.ts, theme.ts)
@@ -85,7 +85,10 @@ mobile/
 - **Tasks**: Daily tasks with subtasks, recurring task engine (daily/weekdays/specific days/weekly/every N days)
 - **Insights**: Late start detection, weekend creep, overtime, cramming, streaks
 - **Weekly review**: Day-by-day breakdown with targets vs actuals
-- **Notifications**: Shift reminders, idle nudges, overtime warnings, quiet hours
+- **Smart notifications**: Scheduled shift alarms (start warning, clock-in, shift end), smart contextual nudges (forgot to clock in, idle too long, tasks due, approaching overtime), persistent live notification with elapsed/remaining time (updates every 30s)
+- **Do Not Disturb**: Pause all notifications with duration options (until tomorrow, next week, or indefinitely) from Settings
+- **Notification channels**: Separate Android channels for session tracking (silent), alerts (sound), and task reminders
+- **Off-day task support**: Freely add tasks on any day; clocking in on an off day clears the auto day-done flag and treats it as a working day
 - **Crash recovery**: Heartbeat-based stale session detection on app relaunch
 - **Theme**: Dark and light modes with system preference support
 - **Haptic feedback**: Tactile responses on clock in/out, break, task toggle, and day done

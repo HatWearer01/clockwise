@@ -34,6 +34,7 @@ import {
 } from "../../src/lib/time";
 import * as TaskService from "../../src/services/task";
 import { markDayDone } from "../../src/services/session";
+import { isDndActive } from "../../src/services/notification";
 import type { DailyTask, StatusState } from "../../src/types";
 
 const CHIP_LABELS: Record<StatusState, string> = {
@@ -124,6 +125,7 @@ export default function TodayScreen() {
   const [tasks, setTasks] = useState<DailyTask[]>([]);
   const [newTaskText, setNewTaskText] = useState("");
   const [expanded, setExpanded] = useState(false);
+  const [dndActive, setDndActive] = useState(false);
 
   const isoToday = todayISODate();
   const tickInterval = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -146,6 +148,7 @@ export default function TodayScreen() {
     try { setTasks(await TaskService.getDailyTasks(isoToday)); } catch { /* */ }
   }, [isoToday]);
   useEffect(() => { void loadTasks(); }, [loadTasks]);
+  useEffect(() => { isDndActive().then(setDndActive).catch(() => {}); }, []);
 
   if (!status) {
     return (
@@ -300,6 +303,12 @@ export default function TodayScreen() {
               <Text style={[s.chipLabel, { color: chip.fg }]}>{CHIP_LABELS[status.state]}</Text>
             </View>
             {status.off_schedule && isActive ? <View style={[s.offDot, { backgroundColor: c.warning }]} /> : null}
+            {dndActive ? (
+              <View style={[s.chip, { backgroundColor: c.surfaceAlt }]}>
+                <Ionicons name="notifications-off-outline" size={11} color={c.textMuted} />
+                <Text style={[s.chipLabel, { color: c.textMuted, marginLeft: 4 }]}>Paused</Text>
+              </View>
+            ) : null}
           </View>
           <View style={s.btnRow}>
             {isActive ? (

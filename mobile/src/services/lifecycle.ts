@@ -2,7 +2,7 @@ import { AppState, AppStateStatus } from "react-native";
 import * as BackgroundFetch from "expo-background-fetch";
 import * as Notifications from "expo-notifications";
 import { getDb } from "../db/connection";
-import { checkAndNotify } from "./notification";
+import { checkAndNotify, scheduleShiftNotifications } from "./notification";
 import {
   BACKGROUND_TASK_NAME,
   setupNotificationChannel,
@@ -105,6 +105,7 @@ async function onForeground(): Promise<void> {
   startSessionTicker();
   startNotificationChecks();
   await updatePersistentNotification();
+  try { await scheduleShiftNotifications(); } catch { /* non-fatal */ }
 }
 
 async function onBackground(): Promise<void> {

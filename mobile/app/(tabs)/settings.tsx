@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   Alert,
   Platform,
@@ -19,6 +19,7 @@ import { useScheduleStore } from "../../src/store/schedule";
 import { getColors } from "../../src/lib/theme";
 import { formatMinuteAsTime } from "../../src/lib/time";
 import { exportDatabase, importDatabase } from "../../src/services/backup";
+import { isDndActive, setDnd, getDndUntil } from "../../src/services/notification";
 
 function clampInt(n: number, min: number, max: number): number {
   if (!Number.isFinite(n)) return min;
@@ -196,6 +197,29 @@ export default function SettingsScreen() {
     void setAppSettings({ reminder_interval_min: next });
   }
 
+  const [dndOn, setDndOn] = useState(false);
+  const [dndLabel, setDndLabel] = useState("");
+
+  const refreshDnd = useCallback(async () => {
+    const active = await isDndActive();
+    setDndOn(active);
+    if (active) {
+      const until = await getDndUntil();
+      if (until === -1) setDndLabel("Until you turn it off");
+      else if (until) {
+        const d = new Date(until);
+        setDndLabel(`Until ${d.toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" })}`);
+      } else setDndLabel("Active");
+    } else setDndLabel("");
+  }, []);
+
+  useEffect(() => { refreshDnd(); }, [refreshDnd]);
+
+  const handleDndChange = useCallback(async (mode: "off" | "tomorrow" | "next_week" | "indefinite") => {
+    await setDnd(mode);
+    await refreshDnd();
+  }, [refreshDnd]);
+
   const switchTrackOff = resolvedTheme === "dark" ? "#334155" : c.surfaceAlt;
   const switchTrackOn = c.primary + "99";
 
@@ -222,6 +246,31 @@ export default function SettingsScreen() {
             colors={c}
             borderColor={cardBorder}
           />
+        </SectionCard>
+
+        <SectionCard title="Do Not Disturb" colors={c} cardBorder={cardBorder}>
+          <View style={rowStyles.switchRow}>
+            <View style={{ flex: 1, paddingRight: 12 }}>
+              <Text style={[rowStyles.rowTitle, { color: c.text }]}>Pause notifications</Text>
+              <Text style={[rowStyles.rowDesc, { color: c.textMuted }]}>
+                {dndOn ? dndLabel : "Suppress all Clockwise notifications."}
+              </Text>
+            </View>
+            <Switch
+              value={dndOn}
+              onValueChange={(v) => {
+                if (!v) { handleDndChange("off"); return; }
+                Alert.alert("Do Not Disturb", "How long should notifications stay paused?", [
+                  { text: "Until tomorrow", onPress: () => handleDndChange("tomorrow") },
+                  { text: "Until next week", onPress: () => handleDndChange("next_week") },
+                  { text: "Until I turn it off", onPress: () => handleDndChange("indefinite") },
+                  { text: "Cancel", style: "cancel" },
+                ]);
+              }}
+              trackColor={{ false: switchTrackOff, true: switchTrackOn }}
+              thumbColor={dndOn ? c.primary : c.textMuted}
+            />
+          </View>
         </SectionCard>
 
         <SectionCard title="Notifications" colors={c} cardBorder={cardBorder}>
