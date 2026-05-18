@@ -11,9 +11,11 @@ let _tickInterval: ReturnType<typeof setInterval> | null = null;
 
 export async function setupNotificationChannels(): Promise<void> {
   try {
-    await Notifications.setNotificationChannelAsync("clockwise-tracking", {
+    await Notifications.deleteNotificationChannelAsync("clockwise-tracking").catch(() => {});
+
+    await Notifications.setNotificationChannelAsync("clockwise-tracking-v2", {
       name: "Session Tracking",
-      importance: Notifications.AndroidImportance.LOW,
+      importance: Notifications.AndroidImportance.DEFAULT,
       sound: undefined,
       vibrationPattern: [0],
       lockscreenVisibility: Notifications.AndroidNotificationVisibility.PUBLIC,
@@ -85,7 +87,7 @@ export async function updatePersistentNotification(): Promise<void> {
         categoryIdentifier: "session",
         data: { type: "persistent" },
       },
-      trigger: { channelId: "clockwise-tracking" },
+      trigger: { channelId: "clockwise-tracking-v2" },
     });
   } catch {
     // non-fatal

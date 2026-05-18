@@ -383,8 +383,8 @@ export default function TasksScreen() {
             </TouchableOpacity>
           </View>
 
-          {/* Day picker */}
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.dayPicker}>
+          {/* Day picker — all 7 days visible as a grid */}
+          <View style={styles.dayPicker}>
             {allWeekDays.map((d) => {
               const selected = selectedDate === d.date;
               const today = d.date === isoToday;
@@ -427,7 +427,7 @@ export default function TasksScreen() {
                 </TouchableOpacity>
               );
             })}
-          </ScrollView>
+          </View>
 
           {weekLoading ? (
             <View style={styles.loadingRow}>
@@ -1269,16 +1269,17 @@ function makeStyles(theme: "dark" | "light") {
     todayLink: { fontSize: 12, fontWeight: "600", marginTop: 4 },
     dayPicker: {
       flexDirection: "row",
+      flexWrap: "wrap",
       gap: 8,
       paddingBottom: 16,
-      paddingRight: 8,
+      justifyContent: "center",
     },
     dayChip: {
-      paddingHorizontal: 16,
+      paddingHorizontal: 12,
       paddingVertical: 10,
       borderRadius: 999,
       alignItems: "center",
-      minWidth: 56,
+      minWidth: 44,
     },
     dayChipLabel: { fontSize: 13, fontWeight: "600" },
     dayChipDot: { fontSize: 10, lineHeight: 12, marginTop: 1 },

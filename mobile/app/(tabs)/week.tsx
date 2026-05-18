@@ -403,7 +403,9 @@ export default function WeekScreen() {
                           </Text>
                           <Text style={[styles.dayHours, { color: c.textMuted }]} numberOfLines={2}>
                             {isOff
-                              ? "Off"
+                              ? day.actual_ms > 60_000
+                                ? `Off · ${formatHoursMinutes(day.actual_ms)} worked${dtc ? ` · ${dtc.done}/${dtc.total} tasks` : ""}`
+                                : `Off${dtc ? ` · ${dtc.done}/${dtc.total} tasks` : ""}`
                               : isShiftMode
                                 ? `${formatHoursMinutes(day.actual_ms)} / ${formatHoursMinutes(day.planned_ms)}${
                                     day.shift_coverage_ms < day.actual_ms
@@ -434,6 +436,19 @@ export default function WeekScreen() {
                               }}
                             />
                           </>
+                        ) : day.actual_ms > 60_000 ? (
+                          <View
+                            pointerEvents="none"
+                            style={{
+                              position: "absolute",
+                              left: 0,
+                              top: 0,
+                              bottom: 0,
+                              width: `${Math.min(100, Math.round((day.actual_ms / (8 * 3600_000)) * 100))}%`,
+                              backgroundColor: c.accent,
+                              borderRadius: 999,
+                            }}
+                          />
                         ) : (
                           <View style={[styles.barOffTrack, { borderColor: hairline }]} />
                         )}

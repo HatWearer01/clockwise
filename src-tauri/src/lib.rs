@@ -7,17 +7,44 @@ mod lock_detect;
 mod notifications;
 mod startup;
 mod state;
+mod sync_server;
 #[cfg(test)]
 mod test_helpers;
 mod tray;
 mod window;
 
 use std::fs;
+use std::sync::Arc;
 use tauri::Manager;
 use tauri_plugin_autostart::MacosLauncher;
 use tauri_plugin_autostart::ManagerExt as _;
 
-use crate::state::AppState;
+use crate::state::{AppState, SyncState};
+
+#[tauri::command]
+async fn cmd_generate_pairing_code(state: tauri::State<'_, AppState>) -> Result<String, String> {
+    let code = sync_server::generate_pairing_code();
+    *state.sync.pairing_code.write().await = Some(code.clone());
+    Ok(code)
+}
+
+#[tauri::command]
+async fn cmd_get_sync_status(state: tauri::State<'_, AppState>) -> Result<serde_json::Value, String> {
+    let paired = state.sync.paired_device.read().await.clone();
+    let connected = *state.sync.connected.read().await;
+    let ip = sync_server::get_local_ip();
+    Ok(serde_json::json!({
+        "paired_device": paired,
+        "connected": connected,
+        "local_ip": ip,
+        "port": sync_server::SYNC_PORT,
+    }))
+}
+
+#[tauri::command]
+fn cmd_get_local_ip() -> Result<String, String> {
+    sync_server::get_local_ip().ok_or_else(|| "Could not determine local IP".to_string())
+}
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -69,11 +96,16 @@ pub fn run() {
                 pool: pool.clone(),
                 heartbeat_path: data_dir.join("heartbeat"),
                 data_dir: data_dir.clone(),
+                sync: Arc::new(SyncState::default()),
             };
 
             tauri::async_runtime::block_on(db::init_db(&pool))?;
             tauri::async_runtime::block_on(startup::reconcile_stale_session(&state))?;
-            app.manage(state);
+            app.manage(state.clone());
+
+            // Spawn LAN sync server
+            tauri::async_runtime::spawn(sync_server::start_sync_server(state.clone()));
+
             let managed = app.state::<AppState>().inner().clone();
             heartbeat::start_heartbeat_writer(managed.heartbeat_path.clone());
             let autostart = tauri::async_runtime::block_on(async {
@@ -106,6 +138,9 @@ pub fn run() {
             }
         })
         .invoke_handler(tauri::generate_handler![
+            cmd_generate_pairing_code,
+            cmd_get_sync_status,
+            cmd_get_local_ip,
             commands::session::clock_in,
             commands::session::clock_out,
             commands::session::start_break,

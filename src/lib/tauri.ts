@@ -212,3 +212,22 @@ export function apiGetLastReviewedWeek() {
 export function apiSetLastReviewedWeek(weekStart: string) {
   return invoke<void>("set_last_reviewed_week", { weekStart });
 }
+
+export function apiGeneratePairingCode() {
+  return invoke<string>("cmd_generate_pairing_code");
+}
+
+export interface SyncStatus {
+  paired_device: string | null;
+  connected: boolean;
+  local_ip: string | null;
+  port: number;
+}
+
+export function apiGetSyncStatus() {
+  return invoke<SyncStatus>("cmd_get_sync_status");
+}
+
+export function apiGetLocalIp() {
+  return invoke<string>("cmd_get_local_ip");
+}

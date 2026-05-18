@@ -178,6 +178,41 @@ pub async fn run_daily_maintenance(pool: &SqlitePool) {
     log::info!("[db] daily maintenance complete: pruned logs older than 30d, WAL checkpoint, optimize");
 }
 
+const SYNC_TRACKED_TABLES: &[(&str, &str)] = &[
+    ("session", "id"),
+    ("session_pause", "id"),
+    ("daily_task", "id"),
+    ("subtask", "id"),
+    ("recurring_task", "id"),
+    ("schedule_template", "id"),
+    ("schedule_block", "id"),
+    ("schedule_day_target", "rowid"),
+    ("settings", "rowid"),
+    ("app_meta", "rowid"),
+];
+
+async fn setup_sync_triggers(pool: &SqlitePool) -> Result<(), String> {
+    for (table, pk) in SYNC_TRACKED_TABLES {
+        for (action, row_ref) in [("insert", "NEW"), ("update", "NEW"), ("delete", "OLD")] {
+            let trigger_name = format!("sync_log_{table}_{action}");
+            let sql = format!(
+                "CREATE TRIGGER IF NOT EXISTS {trigger_name}
+                 AFTER {action_upper} ON {table}
+                 BEGIN
+                   INSERT INTO sync_log (table_name, row_id, action, changed_at)
+                   VALUES ('{table}', {row_ref}.{pk}, '{action}', strftime('%s','now') * 1000);
+                 END;",
+                action_upper = action.to_uppercase()
+            );
+            sqlx::query(&sql)
+                .execute(pool)
+                .await
+                .map_err(|e| format!("sync trigger {trigger_name}: {e}"))?;
+        }
+    }
+    Ok(())
+}
+
 pub async fn init_db(pool: &SqlitePool) -> Result<(), String> {
     // Ensure all tables exist (IF NOT EXISTS makes this idempotent with plugin migrations)
     for stmt in BASE_SCHEMA_SQL.split(';') {
@@ -362,6 +397,32 @@ pub async fn init_db(pool: &SqlitePool) -> Result<(), String> {
     .execute(pool)
     .await
     .map_err(|e| e.to_string())?;
+
+    sqlx::query(
+        "CREATE TABLE IF NOT EXISTS sync_log (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          table_name TEXT NOT NULL,
+          row_id INTEGER NOT NULL,
+          action TEXT NOT NULL,
+          changed_at INTEGER NOT NULL,
+          synced INTEGER NOT NULL DEFAULT 0
+        )",
+    )
+    .execute(pool)
+    .await
+    .map_err(|e| e.to_string())?;
+
+    sqlx::query(
+        "CREATE TABLE IF NOT EXISTS sync_meta (
+          key TEXT PRIMARY KEY,
+          value TEXT NOT NULL
+        )",
+    )
+    .execute(pool)
+    .await
+    .map_err(|e| e.to_string())?;
+
+    setup_sync_triggers(pool).await?;
 
     let count: i64 = sqlx::query("SELECT COUNT(*) FROM schedule")
         .fetch_one(pool)

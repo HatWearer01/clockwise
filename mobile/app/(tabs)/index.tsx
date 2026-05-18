@@ -33,9 +33,10 @@ import {
   formatShortTime,
 } from "../../src/lib/time";
 import * as TaskService from "../../src/services/task";
+import * as InsightService from "../../src/services/insight";
 import { markDayDone } from "../../src/services/session";
 import { isDndActive } from "../../src/services/notification";
-import type { DailyTask, StatusState } from "../../src/types";
+import type { DailyTask, Insight, StatusState } from "../../src/types";
 
 const CHIP_LABELS: Record<StatusState, string> = {
   on_clock: "On the clock",
@@ -126,6 +127,7 @@ export default function TodayScreen() {
   const [newTaskText, setNewTaskText] = useState("");
   const [expanded, setExpanded] = useState(false);
   const [dndActive, setDndActive] = useState(false);
+  const [insights, setInsights] = useState<Insight[]>([]);
 
   const isoToday = todayISODate();
   const tickInterval = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -149,6 +151,7 @@ export default function TodayScreen() {
   }, [isoToday]);
   useEffect(() => { void loadTasks(); }, [loadTasks]);
   useEffect(() => { isDndActive().then(setDndActive).catch(() => {}); }, []);
+  useEffect(() => { InsightService.getInsights().then(setInsights).catch(() => {}); }, []);
 
   if (!status) {
     return (
@@ -461,6 +464,22 @@ export default function TodayScreen() {
           ))}
           {tasks.length === 0 ? <Text style={{ fontSize: 13, color: c.textMuted, marginTop: 4 }}>No tasks yet.</Text> : null}
         </View>
+
+        {/* Insights */}
+        {insights.length > 0 ? (
+          <View style={[s.exCard, { backgroundColor: c.surface, borderColor: c.border }]}>
+            <Text style={{ fontSize: 16, fontWeight: "700", color: c.text }}>Insights</Text>
+            {insights.slice(0, 3).map((insight, i) => (
+              <View key={i} style={{ flexDirection: "row", alignItems: "flex-start", gap: 10, paddingVertical: 4 }}>
+                <Ionicons name="bulb-outline" size={16} color={c.accent} style={{ marginTop: 2 }} />
+                <View style={{ flex: 1 }}>
+                  <Text style={{ fontSize: 14, fontWeight: "600", color: c.text }}>{insight.title}</Text>
+                  <Text style={{ fontSize: 12, color: c.textMuted, marginTop: 2 }}>{insight.body}</Text>
+                </View>
+              </View>
+            ))}
+          </View>
+        ) : null}
 
         {/* Day done */}
         {!isActive && (targetMs > 0 || isDayDone) ? (

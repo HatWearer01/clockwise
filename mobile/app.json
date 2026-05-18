@@ -15,7 +15,8 @@
         "backgroundColor": "#090d17"
       },
       "package": "com.omerh.clockwise",
-      "backgroundColor": "#090d17"
+      "backgroundColor": "#090d17",
+      "usesCleartextTraffic": true
     },
     "plugins": [
       "expo-router",
@@ -27,6 +28,14 @@
         "expo-system-ui",
         {
           "backgroundColor": "#090d17"
+        }
+      ],
+      [
+        "expo-build-properties",
+        {
+          "android": {
+            "usesCleartextTraffic": true
+          }
         }
       ]
     ],

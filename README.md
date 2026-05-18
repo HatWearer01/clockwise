@@ -4,7 +4,7 @@ A personal time-tracking desktop app for managing your own work hours. Clock in 
 
 Built for anyone who wants more structure in their workday — especially remote workers who need help establishing boundaries. Set flexible daily hour targets, get nudged when you drift from your schedule, see pattern insights (late nights, weekend creep, cramming), and review your week with an automatic summary.
 
-Built with Tauri 2, React 19, and TypeScript. Windows native. Also available as an **Android app** — see [`mobile/README.md`](mobile/README.md) for the Expo (React Native) port with full feature parity, plus smart scheduled notifications, Do Not Disturb mode, and off-day task support.
+Built with Tauri 2, React 19, and TypeScript. Windows native. Also available as an **Android app** — see [`mobile/README.md`](mobile/README.md) for the Expo (React Native) port with full feature parity, **LAN sync** (real-time bidirectional sync between desktop and mobile over local network with pairing code authentication), smart scheduled notifications, Do Not Disturb mode, and off-day task support.
 
 ## Features
 
@@ -26,6 +26,7 @@ Built with Tauri 2, React 19, and TypeScript. Windows native. Also available as 
 - **Weekly review** — auto-shows a summary modal on the first app open of each new week; grades the previous week with days worked, target completion %, on-time starts, off-schedule sessions, average start/end times, and pattern insights; also accessible manually via "Review" button on the Week tab; adapts wording in shift mode (shift coverage % instead of target completion)
 - **Crash recovery** — heartbeat file (every 30s) detects unclean shutdowns; on next launch, proposes an end time for the orphaned session, closes any dangling breaks, and caps recovery to prevent future timestamps
 - **Portable data** — database and heartbeat file live in `Documents/Clockwise/`, always writable and independent of the install location; on first launch, automatically migrates data from the legacy `Program Files` location if present; **cross-platform compatible** — the same `clockwise.db` file can be imported into the Android mobile app (Settings > Import Database) for seamless data transfer between desktop and mobile
+- **LAN sync** — real-time bidirectional sync between desktop and mobile over local network; desktop runs an HTTP/WebSocket server on port 19847, mobile connects as a client; pair devices with a 6-digit code, then all sessions, tasks, schedule changes, and settings sync automatically; offline changes reconcile on reconnect with last-write-wins conflict resolution; change tracking via `sync_log` table with database triggers
 - **Accountability modes** — choose between "shift" (focus on being present during scheduled blocks) and "target" (focus on hitting X hours regardless of when); shift mode weights the progress ring (and related bars) toward **both** in-window coverage and total hours vs your planned shift length so late or off-window work still moves the dial; task progress and stats stay shift-oriented; target mode shows traditional worked/remaining/overtime stats; affects clock-in button color, progress ring, stats, and notification behavior
 - **Settings** — always-on-top toggle, window opacity slider, week start day (Monday/Sunday), 12h/24h time format, autostart, notification and idle nudge controls with sub-options, accountability mode (shift/target)
 - **Lock/sleep detection** — detects Windows session lock/unlock and sleep/wake events; pauses tracking context so idle time isn't counted
@@ -52,9 +53,9 @@ A few cross-cutting behaviors to be aware of when using or contributing to Clock
 ## Tech Stack
 
 - **Frontend:** React 19, TypeScript, Vite 7, Tailwind CSS 4, Zustand, Framer Motion, ESLint
-- **Backend:** Rust (Edition 2021), Tauri 2, SQLite via sqlx
-- **Desktop:** System tray, notifications, autostart, lock/sleep detection (Windows)
-- **Mobile:** Expo (React Native), expo-sqlite, expo-notifications, Zustand (Android)
+- **Backend:** Rust (Edition 2021), Tauri 2, SQLite via sqlx, axum (LAN sync server)
+- **Desktop:** System tray, notifications, autostart, lock/sleep detection (Windows), LAN sync server (HTTP + WebSocket on port 19847)
+- **Mobile:** Expo (React Native), expo-sqlite, expo-notifications, Zustand, LAN sync client (Android)
 
 ## Getting Started
 
@@ -226,8 +227,9 @@ clockwise/
 ├── src-tauri/              # Rust backend
 │   └── src/
 │       ├── commands/       # Tauri command handlers (session, schedule, settings, tasks)
-│       ├── db.rs           # SQLite schema and migrations
-│       ├── state.rs        # AppState definition (DB pool, mutexes)
+│       ├── db.rs           # SQLite schema, migrations, sync_log triggers
+│       ├── state.rs        # AppState definition (DB pool, sync state)
+│       ├── sync_server.rs  # axum HTTP/WebSocket server for LAN sync (port 19847)
 │       ├── notifications.rs # Reminder system with interval dedup
 │       ├── tray.rs         # System tray icon and menu
 │       ├── window.rs       # Window mode switching, vibrancy, always-on-top

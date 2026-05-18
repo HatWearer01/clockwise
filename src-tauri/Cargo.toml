@@ -38,6 +38,12 @@ tauri-plugin-sql = { version = "2.4.0", features = ["sqlite"] }
 sqlx = { version = "0.8.6", features = ["sqlite", "runtime-tokio-rustls"] }
 log = "0.4"
 dirs = "6"
+axum = { version = "0.8", features = ["ws"] }
+tokio = { version = "1", features = ["rt", "macros", "net", "sync"] }
+local-ip-address = "0.6"
+rand = "0.9"
+futures-util = "0.3"
+whoami = "1"
 
 [dev-dependencies]
 tokio = { version = "1", features = ["rt", "macros"] }

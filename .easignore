@@ -1,0 +1,11 @@
+src-tauri/target/
+node_modules/
+dist/
+e2e/node_modules/
+.git/
+mobile/node_modules/
+mobile/.expo/
+mobile/android/
+mobile/ios/
+*.apk
+*.aab

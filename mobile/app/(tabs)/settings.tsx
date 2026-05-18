@@ -16,6 +16,7 @@ import type { ReactNode } from "react";
 import { useSettingsStore } from "../../src/store/settings";
 import { useTimerStore } from "../../src/store/timer";
 import { useScheduleStore } from "../../src/store/schedule";
+import { useSyncStore } from "../../src/store/sync";
 import { getColors } from "../../src/lib/theme";
 import { formatMinuteAsTime } from "../../src/lib/time";
 import { exportDatabase, importDatabase } from "../../src/services/backup";
@@ -550,11 +551,140 @@ export default function SettingsScreen() {
           </Text>
         </SectionCard>
 
+        <SyncSection colors={c} cardBorder={cardBorder} />
+
         {settingsSaving ? (
           <Text style={[rowStyles.saving, { color: c.textMuted }]}>Saving…</Text>
         ) : null}
       </ScrollView>
     </SafeAreaView>
+  );
+}
+
+function SyncSection({ colors: c, cardBorder }: { colors: ReturnType<typeof getColors>; cardBorder: string }) {
+  const { ip, setIp, paired, peerName, connected, syncing, error, init, discover, pair, syncNow, disconnect } = useSyncStore();
+  const [code, setCode] = useState("");
+
+  useEffect(() => { init(); }, [init]);
+
+  return (
+    <SectionCard title="Sync" colors={c} cardBorder={cardBorder}>
+      <Text style={{ color: c.textMuted, fontSize: 13, marginBottom: 14, lineHeight: 19 }}>
+        Sync with your desktop Clockwise app over your local network.
+      </Text>
+
+      {connected ? (
+        <View style={{ gap: 10 }}>
+          <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+            <Ionicons name="wifi" size={18} color={c.primary} />
+            <Text style={{ color: c.text, fontSize: 15, fontWeight: "700" }}>
+              Connected to {peerName ?? "Desktop"}
+            </Text>
+          </View>
+          <View style={{ flexDirection: "row", gap: 10 }}>
+            <Pressable
+              onPress={() => void syncNow()}
+              style={({ pressed }) => [{
+                flex: 1, paddingVertical: 12, borderRadius: 12,
+                backgroundColor: c.primary, opacity: pressed || syncing ? 0.7 : 1,
+                alignItems: "center",
+              }]}
+            >
+              <Text style={{ color: "#fff", fontWeight: "800", fontSize: 14 }}>
+                {syncing ? "Syncing..." : "Sync Now"}
+              </Text>
+            </Pressable>
+            <Pressable
+              onPress={disconnect}
+              style={({ pressed }) => [{
+                paddingVertical: 12, paddingHorizontal: 16, borderRadius: 12,
+                borderWidth: 1, borderColor: cardBorder, opacity: pressed ? 0.7 : 1,
+                alignItems: "center",
+              }]}
+            >
+              <Text style={{ color: c.text, fontWeight: "700", fontSize: 14 }}>Disconnect</Text>
+            </Pressable>
+          </View>
+        </View>
+      ) : paired ? (
+        <View style={{ gap: 10 }}>
+          <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+            <Ionicons name="cloud-offline-outline" size={18} color={c.warning} />
+            <Text style={{ color: c.text, fontSize: 14 }}>
+              Paired with {peerName ?? "Desktop"} (offline)
+            </Text>
+          </View>
+          <Pressable
+            onPress={() => void syncNow()}
+            style={({ pressed }) => [{
+              paddingVertical: 12, borderRadius: 12,
+              backgroundColor: c.primary, opacity: pressed || syncing ? 0.7 : 1,
+              alignItems: "center",
+            }]}
+          >
+            <Text style={{ color: "#fff", fontWeight: "800", fontSize: 14 }}>
+              {syncing ? "Syncing..." : "Reconnect & Sync"}
+            </Text>
+          </Pressable>
+        </View>
+      ) : (
+        <View style={{ gap: 12 }}>
+          <View>
+            <Text style={{ color: c.text, fontSize: 13, fontWeight: "700", marginBottom: 6 }}>Desktop IP address</Text>
+            <TextInput
+              value={ip}
+              onChangeText={setIp}
+              placeholder="192.168.1.x"
+              placeholderTextColor={c.textMuted}
+              keyboardType="numeric"
+              style={{
+                borderWidth: 1, borderColor: cardBorder, borderRadius: 12,
+                paddingHorizontal: 14, paddingVertical: 10, fontSize: 16,
+                color: c.text, backgroundColor: c.bg,
+              }}
+            />
+          </View>
+          <View>
+            <Text style={{ color: c.text, fontSize: 13, fontWeight: "700", marginBottom: 6 }}>Pairing code</Text>
+            <TextInput
+              value={code}
+              onChangeText={setCode}
+              placeholder="000000"
+              placeholderTextColor={c.textMuted}
+              keyboardType="number-pad"
+              maxLength={6}
+              style={{
+                borderWidth: 1, borderColor: cardBorder, borderRadius: 12,
+                paddingHorizontal: 14, paddingVertical: 10, fontSize: 20,
+                color: c.text, backgroundColor: c.bg, letterSpacing: 4,
+                fontWeight: "800", textAlign: "center",
+              }}
+            />
+          </View>
+          <Pressable
+            onPress={async () => {
+              if (!ip) { Alert.alert("Enter IP", "Enter your desktop's LAN IP address."); return; }
+              const found = await discover();
+              if (!found) { Alert.alert("Not Found", "Couldn't reach desktop at that IP."); return; }
+              if (!code || code.length !== 6) { Alert.alert("Enter Code", "Enter the 6-digit pairing code from your desktop."); return; }
+              const ok = await pair(code);
+              if (!ok) { Alert.alert("Failed", "Pairing code incorrect or expired."); }
+            }}
+            style={({ pressed }) => [{
+              paddingVertical: 14, borderRadius: 12,
+              backgroundColor: c.primary, opacity: pressed ? 0.7 : 1,
+              alignItems: "center",
+            }]}
+          >
+            <Text style={{ color: "#fff", fontWeight: "800", fontSize: 15 }}>Pair & Connect</Text>
+          </Pressable>
+        </View>
+      )}
+
+      {error ? (
+        <Text style={{ color: c.warning, fontSize: 12, marginTop: 8 }}>{error}</Text>
+      ) : null}
+    </SectionCard>
   );
 }
 

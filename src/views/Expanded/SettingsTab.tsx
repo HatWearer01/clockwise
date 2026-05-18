@@ -1,11 +1,43 @@
-import { FolderOpen } from "lucide-react";
-import { apiOpenDataFolder } from "../../lib/tauri";
+import { useCallback, useEffect, useState } from "react";
+import { FolderOpen, Wifi, WifiOff, Copy } from "lucide-react";
+import { apiOpenDataFolder, apiGeneratePairingCode, apiGetSyncStatus, type SyncStatus } from "../../lib/tauri";
 import { formatMinuteAsTime, timeInputValue, parseTimeInput } from "../../lib/time";
 import { useSettingsStore } from "../../store/settings";
 
 export default function SettingsTab() {
   const { theme, setTheme, appSettings, setAppSettings, settingsSaving } = useSettingsStore();
   const tf = appSettings.time_format;
+
+  const [syncStatus, setSyncStatus] = useState<SyncStatus | null>(null);
+  const [pairingCode, setPairingCode] = useState<string | null>(null);
+  const [codeCopied, setCodeCopied] = useState(false);
+
+  const refreshSync = useCallback(async () => {
+    try {
+      const s = await apiGetSyncStatus();
+      setSyncStatus(s);
+    } catch { /* ignore */ }
+  }, []);
+
+  useEffect(() => {
+    refreshSync();
+    const interval = setInterval(refreshSync, 5000);
+    return () => clearInterval(interval);
+  }, [refreshSync]);
+
+  const handleGenerateCode = async () => {
+    const code = await apiGeneratePairingCode();
+    setPairingCode(code);
+    setCodeCopied(false);
+  };
+
+  const handleCopyCode = () => {
+    if (pairingCode) {
+      navigator.clipboard.writeText(pairingCode);
+      setCodeCopied(true);
+      setTimeout(() => setCodeCopied(false), 2000);
+    }
+  };
 
   return (
     <section className="tab-panel">
@@ -320,7 +352,43 @@ export default function SettingsTab() {
           </div>
         )}
 
-        {/* 11. Data folder */}
+        {/* 11. Sync */}
+        <article className="setting-row">
+          <div>
+            <span style={{ display: "flex", alignItems: "center", gap: 6 }}>
+              {syncStatus?.connected ? <Wifi size={14} /> : <WifiOff size={14} />}
+              Mobile Sync
+            </span>
+            <p className="muted setting-desc">
+              {syncStatus?.connected
+                ? `Connected to ${syncStatus.paired_device ?? "mobile"}`
+                : syncStatus?.paired_device
+                  ? `Paired with ${syncStatus.paired_device} (offline)`
+                  : "Pair your mobile app over LAN to sync data in real-time."}
+            </p>
+            {syncStatus?.local_ip && (
+              <p className="muted setting-desc" style={{ fontSize: "0.75rem" }}>
+                LAN: {syncStatus.local_ip}:{syncStatus.port}
+              </p>
+            )}
+          </div>
+          <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 4 }}>
+            {pairingCode ? (
+              <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                <code style={{ fontSize: "1.1rem", letterSpacing: 2, fontWeight: 700 }}>{pairingCode}</code>
+                <button className="chip" onClick={handleCopyCode} title="Copy code">
+                  <Copy size={12} /> {codeCopied ? "Copied" : "Copy"}
+                </button>
+              </div>
+            ) : (
+              <button className="chip" onClick={() => void handleGenerateCode()}>
+                Generate pairing code
+              </button>
+            )}
+          </div>
+        </article>
+
+        {/* 12. Data folder */}
         <article className="setting-row">
           <div>
             <span>Data folder</span>

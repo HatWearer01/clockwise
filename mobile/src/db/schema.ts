@@ -118,6 +118,20 @@ const BASE_SCHEMA = `
     start_min INTEGER NOT NULL,
     end_min INTEGER NOT NULL
   );
+
+  CREATE TABLE IF NOT EXISTS sync_log (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    table_name TEXT NOT NULL,
+    row_id INTEGER NOT NULL,
+    action TEXT NOT NULL,
+    changed_at INTEGER NOT NULL,
+    synced INTEGER NOT NULL DEFAULT 0
+  );
+
+  CREATE TABLE IF NOT EXISTS sync_meta (
+    key TEXT PRIMARY KEY,
+    value TEXT NOT NULL
+  );
 `;
 
 export async function initDb(db: SQLiteDatabase): Promise<void> {
@@ -129,7 +143,44 @@ export async function initDb(db: SQLiteDatabase): Promise<void> {
     await db.execAsync(stmt + ";");
   }
 
+  await setupSyncTriggers(db);
   await seedDefaults(db);
+}
+
+const SYNC_TRACKED_TABLES = [
+  "session", "session_pause", "daily_task", "subtask",
+  "recurring_task", "schedule_template", "schedule_block",
+  "schedule_day_target", "settings", "app_meta",
+];
+
+async function setupSyncTriggers(db: SQLiteDatabase): Promise<void> {
+  for (const table of SYNC_TRACKED_TABLES) {
+    const pk = table === "settings" || table === "app_meta" ? "rowid" : "id";
+    await db.execAsync(`
+      CREATE TRIGGER IF NOT EXISTS sync_log_${table}_insert
+      AFTER INSERT ON ${table}
+      BEGIN
+        INSERT INTO sync_log (table_name, row_id, action, changed_at)
+        VALUES ('${table}', NEW.${pk}, 'insert', strftime('%s','now') * 1000);
+      END;
+    `);
+    await db.execAsync(`
+      CREATE TRIGGER IF NOT EXISTS sync_log_${table}_update
+      AFTER UPDATE ON ${table}
+      BEGIN
+        INSERT INTO sync_log (table_name, row_id, action, changed_at)
+        VALUES ('${table}', NEW.${pk}, 'update', strftime('%s','now') * 1000);
+      END;
+    `);
+    await db.execAsync(`
+      CREATE TRIGGER IF NOT EXISTS sync_log_${table}_delete
+      AFTER DELETE ON ${table}
+      BEGIN
+        INSERT INTO sync_log (table_name, row_id, action, changed_at)
+        VALUES ('${table}', OLD.${pk}, 'delete', strftime('%s','now') * 1000);
+      END;
+    `);
+  }
 }
 
 async function seedDefaults(db: SQLiteDatabase): Promise<void> {

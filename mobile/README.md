@@ -36,11 +36,11 @@ mobile/
 │   ├── _layout.tsx         # Root layout (DB init, lifecycle, crash recovery)
 │   └── (tabs)/
 │       ├── _layout.tsx     # Tab navigator (Today, Tasks, Schedule, Week, Settings)
-│       ├── index.tsx       # Today — compact full-screen / expanded detail
-│       ├── tasks.tsx       # Tasks — week nav, day picker, CRUD, recurring manager
+│       ├── index.tsx       # Today — compact full-screen / expanded detail + insights
+│       ├── tasks.tsx       # Tasks — week nav, day grid picker, CRUD, recurring manager
 │       ├── schedule.tsx    # Schedule — templates, blocks, day targets, checklist
 │       ├── week.tsx        # Week — summary, 8-week chart, weekly review, insights
-│       └── settings.tsx    # Settings — theme, notifications, accountability mode
+│       └── settings.tsx    # Settings — theme, notifications, sync, data import/export
 ├── src/
 │   ├── db/                 # SQLite schema, migrations, connection (expo-sqlite)
 │   ├── services/           # Business logic ported from Rust commands
@@ -51,8 +51,10 @@ mobile/
 │   │   ├── insight.ts      # Pattern detection (late starts, streaks, etc.)
 │   │   ├── settings.ts     # App settings CRUD
 │   │   ├── foreground.ts   # Persistent live notification, channels, background task
-│   │   └── lifecycle.ts    # Heartbeat, crash recovery, app state transitions
-│   ├── store/              # Zustand stores (timer, schedule, settings)
+│   │   ├── lifecycle.ts    # Heartbeat, crash recovery, app state transitions
+│   │   ├── sync.ts         # LAN sync client (discover, pair, push/pull, WebSocket)
+│   │   └── backup.ts       # Database export/import
+│   ├── store/              # Zustand stores (timer, schedule, settings, sync)
 │   ├── lib/                # Utilities (time.ts, theme.ts)
 │   └── types.ts            # Shared TypeScript types
 ├── app.json                # Expo config (SDK 54, dark nav bar, system UI)
@@ -80,14 +82,16 @@ mobile/
 
 - **Session tracking**: Clock in/out with second-precision timing, break management
 - **Compact-first Today screen**: Giant progress ring, live timer, worked/left stats — full screen, no card
-- **Expandable detail view**: Tap expand for progress bar, session stats, schedule info, and task list
+- **Expandable detail view**: Tap expand for progress bar, session stats, schedule info, task list, and insights
 - **Schedule**: Multi-template support, blocks per day, day targets, checklist items
-- **Tasks**: Daily tasks with subtasks, recurring task engine (daily/weekdays/specific days/weekly/every N days)
-- **Insights**: Late start detection, weekend creep, overtime, cramming, streaks
+- **Tasks**: Daily tasks with subtasks, recurring task engine (daily/weekdays/specific days/weekly/every N days); day picker shows all 7 days as a grid (no scrolling needed for Sat/Sun)
+- **Insights**: Late start detection, weekend creep, overtime, cramming, streaks (shown on both Today expanded view and Week tab)
 - **Weekly review**: Day-by-day breakdown with targets vs actuals
-- **Smart notifications**: Scheduled shift alarms (start warning, clock-in, shift end), smart contextual nudges (forgot to clock in, idle too long, tasks due, approaching overtime), persistent live notification with elapsed/remaining time (updates every 30s)
+- **Week tab off-day support**: Hours worked on scheduled off-days are displayed with actual time and progress bar instead of just "Off"
+- **LAN Sync**: Real-time bidirectional sync with the desktop app over your local network. Pair via a 6-digit code, sync changes automatically over WebSocket, or trigger a manual sync. Works offline with catch-up on reconnect.
+- **Smart notifications**: Scheduled shift alarms (start warning, clock-in, shift end), smart contextual nudges (forgot to clock in, idle too long, tasks due, approaching overtime), persistent live notification with elapsed/remaining time (shows on lock screen, updates every 30s)
 - **Do Not Disturb**: Pause all notifications with duration options (until tomorrow, next week, or indefinitely) from Settings
-- **Notification channels**: Separate Android channels for session tracking (silent), alerts (sound), and task reminders
+- **Notification channels**: Separate Android channels for session tracking (DEFAULT importance, visible on lock screen), alerts (sound), and task reminders
 - **Off-day task support**: Freely add tasks on any day; clocking in on an off day clears the auto day-done flag and treats it as a working day
 - **Crash recovery**: Heartbeat-based stale session detection on app relaunch
 - **Theme**: Dark and light modes with system preference support
@@ -103,13 +107,24 @@ Some features are limited when previewing via Expo Go (use a development build f
 
 These are wrapped in try/catch blocks and degrade gracefully.
 
-## Data
+## Data & Sync
 
 Database is stored locally on device via expo-sqlite (`clockwise.db`). Same schema as the desktop app.
 
-### Transferring Data Between Desktop and Mobile
+### LAN Sync (Recommended)
 
-The desktop and mobile databases are fully compatible (identical schema). To transfer:
+The desktop and mobile apps sync automatically when connected to the same local network:
+
+1. Open the desktop app — Settings > Mobile Sync — click "Generate pairing code"
+2. Note the displayed IP address and 6-digit code
+3. Open mobile app — Settings > Sync — enter the IP and pairing code, tap "Pair & Connect"
+4. Done! Changes flow bidirectionally in real-time over WebSocket (port 19847)
+
+Sync tracks all changes via a `sync_log` table with database triggers. On reconnect, any offline changes are reconciled automatically (last-write-wins by timestamp).
+
+### Manual Database Transfer
+
+For one-time imports without LAN sync:
 
 **Desktop to Mobile:**
 1. Copy `Documents/Clockwise/clockwise.db` from your PC to your phone (USB, cloud drive, etc.)
